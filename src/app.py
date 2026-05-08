@@ -1,0 +1,935 @@
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import streamlit as st
+import pandas as pd
+import sqlite3
+from datetime import date, timedelta, datetime as dt
+
+from src.search_engine import get_lesson_info, find_room_for_event
+from src.optimization import mass_reallocate
+
+DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
+
+st.set_page_config(
+    page_title="Корректировка расписания",
+    page_icon="🏫", layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+WD_R = {0: "Понедельник", 1: "Вторник", 2: "Среда", 3: "Четверг", 4: "Пятница", 5: "Суббота", 6: "Воскресенье"}
+
+SLOTS = [
+    {"name": "1-я пара", "start": "09:00", "end": "10:35"},
+    {"name": "2-я пара", "start": "10:50", "end": "12:25"},
+    {"name": "3-я пара", "start": "12:40", "end": "14:15"},
+    {"name": "4-я пара", "start": "14:30", "end": "16:05"},
+    {"name": "5-я пара", "start": "16:20", "end": "17:55"},
+    {"name": "6-я пара", "start": "18:00", "end": "19:25"},
+    {"name": "7-я пара", "start": "19:35", "end": "21:00"},
+]
+
+BASE_MONDAY = date(2026, 1, 12)
+
+
+def t2m(t):
+    h, m = map(int, t.split(":"))
+    return h * 60 + m
+
+
+def d2wt(d):
+    if isinstance(d, dt):
+        d = d.date()
+    elif not isinstance(d, date):
+        d = date(int(str(d)[:4]), int(str(d)[5:7]), int(str(d)[8:10]))
+    diff = (d - BASE_MONDAY).days
+    return "upper" if (diff // 7) % 2 == 0 else "lower"
+
+
+def d2wd(d):
+    if isinstance(d, dt):
+        d = d.date()
+    elif not isinstance(d, date):
+        d = date(int(str(d)[:4]), int(str(d)[5:7]), int(str(d)[8:10]))
+    return WD_R.get(d.weekday(), "")
+
+
+def to_iso(t):
+    return f"2026-01-12T{t}:00+03:00"
+
+
+def t_from_iso(s):
+    return s[11:16] if s else ""
+
+
+def slot_label(start_str, end_str):
+    for sl in SLOTS:
+        if sl["start"] == start_str and sl["end"] == end_str:
+            return f"{sl['start']}–{sl['end']} ({sl['name']})"
+    return f"{start_str}–{end_str}"
+
+
+def gc():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def ensure_tables():
+    c = gc()
+    cur = c.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS transfers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        schedule_id INT, old_room_id INT, new_room_id INT,
+        weekday TEXT, start TEXT, end TEXT, week_type TEXT,
+        lesson_id INT, group_id INT, reason TEXT,
+        booking_date TEXT)""")
+    cur.execute("""CREATE TABLE IF NOT EXISTS event_bookings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        room_id INT, weekday TEXT, start TEXT, end TEXT, week_type TEXT,
+        event_name TEXT, organizer TEXT, attendees_count INT,
+        needs_projector BOOLEAN, needs_computers BOOLEAN,
+        booking_date TEXT)""")
+    c.commit()
+    c.close()
+
+
+ensure_tables()
+
+
+def get_rooms():
+    c = gc()
+    r = c.execute("SELECT id,name,building,floor,capacity,has_projector,has_computers FROM rooms WHERE building NOT IN ('Онлайн','Каф. ИЯКТ','Спортивный комплекс Беляево') ORDER BY building,name").fetchall()
+    c.close()
+    return r
+
+
+def get_buildings():
+    c = gc()
+    r = c.execute("SELECT DISTINCT building FROM rooms WHERE building NOT IN ('Онлайн','Каф. ИЯКТ','Спортивный комплекс Беляево') ORDER BY building").fetchall()
+    c.close()
+    return [x[0] for x in r]
+
+
+def get_transferred_schedule_ids():
+    c = gc()
+    rows = c.execute("SELECT DISTINCT schedule_id FROM transfers").fetchall()
+    c.close()
+    return {r["schedule_id"] for r in rows}
+
+
+def get_affected(room_ids, sd, ed):
+    """Найти занятия в аудиториях за период КОНКРЕТНЫХ дат."""
+    if not room_ids or not sd or not ed:
+        return []
+    transferred_sids = get_transferred_schedule_ids()
+    c = gc()
+    ph = ",".join("?" for _ in room_ids)
+    dates = []
+    d = sd
+    while d <= ed:
+        dates.append((d2wd(d), d2wt(d), d))
+        d += timedelta(days=1)
+    cond = " OR ".join("(s.weekday=? AND s.week_type=?)" for _ in dates)
+    q = f"""SELECT s.id,r.name as room_name,s.weekday,s.start,s.end,s.week_type,
+            l.id as lesson_id,l.title as lesson_title,l.lesson_type,
+            l.needs_projector,l.needs_computers,
+            g.id as group_id,g.name as group_name,g.students_count
+        FROM schedule s JOIN rooms r ON s.room_id=r.id
+        JOIN lessons l ON s.lesson_id=l.id JOIN groups g ON s.group_id=g.id
+        WHERE r.id IN ({ph}) AND ({cond}) ORDER BY s.start,r.name"""
+    params = list(room_ids)
+    for wd, wt, _ in dates:
+        params.extend([wd, wt])
+    rows = c.execute(q, params).fetchall()
+    c.close()
+    result = []
+    for r in rows:
+        if r["id"] in transferred_sids:
+            continue
+        for wd, wt, d in dates:
+            if r["weekday"] == wd and r["week_type"] == wt:
+                result.append({**dict(r), "booking_date": str(d)})
+                break
+    return result
+
+
+def get_sched_for_date(sel_date):
+    """Занятия для конкретной даты."""
+    wd = d2wd(sel_date)
+    wt = d2wt(sel_date)
+    c = gc()
+    rows = c.execute("""
+        SELECT s.id,s.room_id,r.name as room_name,r.building,r.floor,
+               l.title as lesson_title,l.lesson_type,g.name as group_name,
+               substr(s.start,12,5) as st,substr(s.end,12,5) as et
+        FROM schedule s JOIN rooms r ON s.room_id=r.id
+        JOIN lessons l ON s.lesson_id=l.id JOIN groups g ON s.group_id=g.id
+        WHERE s.weekday=? AND s.week_type=? ORDER BY r.name,s.start
+    """, (wd, wt)).fetchall()
+    c.close()
+    g = {}
+    for r in rows:
+        k = (r["room_id"], r["st"], r["et"])
+        if k not in g:
+            g[k] = {
+                "room_id": r["room_id"], "room_name": r["room_name"],
+                "building": r["building"], "floor": r["floor"],
+                "lesson_title": r["lesson_title"], "lesson_type": r["lesson_type"],
+                "sids": [], "groups": [], "start": r["st"], "end": r["et"],
+            }
+        g[k]["sids"].append(r["id"])
+        g[k]["groups"].append(r["group_name"])
+    out = []
+    for v in g.values():
+        v["gd"] = ", ".join(sorted(set(v["groups"]))) if len(v["groups"]) > 1 else v["groups"][0]
+        out.append(v)
+    return out, wd, wt
+
+
+def get_transfers_for_date(sel_date):
+    """Переносы для КОНКРЕТНОЙ даты."""
+    c = gc()
+    r = c.execute("""
+        SELECT t.id as tid,t.schedule_id,t.booking_date,r1.name as old_room,r2.name as new_room,
+               r2.id as new_room_id,l.title as lesson_title,l.lesson_type,g.name as group_name,
+               substr(t.start,12,5) as st,substr(t.end,12,5) as et
+        FROM transfers t JOIN rooms r1 ON t.old_room_id=r1.id
+        JOIN rooms r2 ON t.new_room_id=r2.id
+        JOIN lessons l ON t.lesson_id=l.id JOIN groups g ON t.group_id=g.id
+        WHERE t.booking_date=?
+    """, (str(sel_date),)).fetchall()
+    c.close()
+    return r
+
+
+def get_bookings_for_date(room_id, sel_date):
+    """Бронирования для аудитории на КОНКРЕТНУЮ дату."""
+    c = gc()
+    r = c.execute("""
+        SELECT eb.id as bid,eb.event_name,eb.organizer,eb.attendees_count,eb.booking_date,
+               substr(eb.start,12,5) as st,substr(eb.end,12,5) as et
+        FROM event_bookings eb WHERE eb.room_id=? AND eb.booking_date=?
+    """, (room_id, str(sel_date))).fetchall()
+    c.close()
+    return r
+
+
+def check_booking_conflict(room_id, sel_date, s, e, exclude_bid=None):
+    """Проверить конфликт по КОНКРЕТНОЙ дате."""
+    c = gc()
+    q = """SELECT COUNT(*) as cnt FROM event_bookings
+           WHERE room_id=? AND booking_date=?
+           AND substr(start,12,5) < ? AND substr(end,12,5) > ?"""
+    params = [room_id, str(sel_date), e, s]
+    if exclude_bid:
+        q += " AND id != ?"
+        params.append(exclude_bid)
+    r = c.execute(q, params).fetchone()
+    if r["cnt"] > 0:
+        c.close()
+        return True
+    wd = d2wd(sel_date)
+    wt = d2wt(sel_date)
+    r2 = c.execute("""
+        SELECT COUNT(*) as cnt FROM schedule
+        WHERE room_id=? AND weekday=? AND week_type=?
+        AND substr(start,12,5) < ? AND substr(end,12,5) > ?
+    """, (room_id, wd, wt, e, s)).fetchone()
+    c.close()
+    return r2["cnt"] > 0
+
+
+def save_transfers(assignments, date_map, sd, ed):
+    """Сохранить переносы с booking_date.
+    Для каждого assignment создаём запись для КАЖДОЙ даты в диапазоне [sd, ed],
+    у которой совпадает (weekday, week_type).
+    date_map: dict schedule_id -> booking_date (первая найденная дата)
+    """
+    # Собираем все даты в диапазоне, сгруппированные по (weekday, week_type)
+    date_groups = {}  # (weekday, week_type) -> [date, ...]
+    d = sd
+    while d <= ed:
+        key = (d2wd(d), d2wt(d))
+        date_groups.setdefault(key, []).append(d)
+        d += timedelta(days=1)
+
+    c = gc()
+    saved_count = 0
+    for sid, sr in assignments.items():
+        info = get_lesson_info(sid)
+        key = (info["weekday"], info["week_type"])
+        dates_for_this = date_groups.get(key, [])
+        for bdate in dates_for_this:
+            c.execute(
+                "INSERT INTO transfers(schedule_id,old_room_id,new_room_id,weekday,start,end,week_type,lesson_id,group_id,reason,booking_date) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                (sid, info["room_id"], sr.room_id, info["weekday"], info["start"], info["end"],
+                 info["week_type"], info["lesson_id"], info["group_id"], "Инцидент", str(bdate)),
+            )
+            saved_count += 1
+    c.commit()
+    c.close()
+    return saved_count
+
+
+def save_booking(room, name, org, att, sel_date, s, e, p, co):
+    wd = d2wd(sel_date)
+    wt = d2wt(sel_date)
+    c = gc()
+    c.execute(
+        "INSERT INTO event_bookings(room_id,weekday,start,end,week_type,event_name,organizer,attendees_count,needs_projector,needs_computers,booking_date) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        (room["id"], wd, to_iso(s), to_iso(e), wt, name, org, att, p, co, str(sel_date)),
+    )
+    c.commit()
+    c.close()
+
+
+def del_transfer(tid):
+    c = gc()
+    c.execute("DELETE FROM transfers WHERE id=?", (tid,))
+    c.commit()
+    c.close()
+
+
+def del_booking(bid):
+    c = gc()
+    c.execute("DELETE FROM event_bookings WHERE id=?", (bid,))
+    c.commit()
+    c.close()
+
+
+# ═══ NAV ═══
+page = st.sidebar.radio(
+    "Навигация:",
+    ["🔧 Инциденты", "📅 Бронирование", "📋 Расписание", "⚙️ Управление"],
+)
+
+
+# ═══ Страница 1: Инциденты ═══
+if page == "🔧 Инциденты":
+    st.title("🔧 Перенос занятий при закрытии аудиторий")
+    ca, cb = st.columns(2)
+    with ca:
+        pt = st.radio("Тип:", ["Отдельные аудитории", "Весь корпус"])
+        rms = get_rooms()
+        ropts = {r["name"]: r for r in rms}
+        if pt == "Отдельные аудитории":
+            sn = st.multiselect("Аудитории:", list(ropts.keys()))
+            sids_in = [ropts[n]["id"] for n in sn]
+        else:
+            sb = st.selectbox("Корпус:", get_buildings())
+            sids_in = [r["id"] for r in rms if r["building"] == sb]
+
+    with cb:
+        st.write("**Период закрытия:**")
+        today = date.today()
+        d1, d2 = st.columns(2)
+        with d1:
+            sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12))
+        with d2:
+            ed = st.date_input("Конец:", value=sd + timedelta(days=4), min_value=sd)
+
+    st.divider()
+
+    # Показываем уведомление о сохранении (из session_state)
+    if st.session_state.get("saved_msg"):
+        st.success(st.session_state["saved_msg"])
+        if st.button("🔄 Новый перенос"):
+            st.session_state["saved_msg"] = None
+            st.session_state["ir"] = None
+            st.session_state["ir_sd"] = None
+            st.session_state["ir_ed"] = None
+            st.rerun()
+        st.divider()
+
+    aff = get_affected(sids_in, sd, ed) if sids_in else []
+    st.subheader("Предпросмотр")
+    if aff:
+        st.info(f"Затронуто: **{len(aff)}**")
+        sc = {}
+        for r in aff:
+            k = f"{r['booking_date']} {r['start'][11:16]}-{r['end'][11:16]}"
+            sc[k] = sc.get(k, 0) + 1
+        for k, v in sorted(sc.items()):
+            st.write(f"  • {k}: **{v}**")
+    else:
+        st.warning("Нет занятий" if sids_in else "Выберите аудитории")
+
+    if st.button("🚀 Сгенерировать замены", type="primary", disabled=len(aff) == 0):
+        with st.spinner("Оптимизация..."):
+            st.session_state["ir"] = mass_reallocate([r["id"] for r in aff])
+            st.session_state["ir_sd"] = sd
+            st.session_state["ir_ed"] = ed
+
+    res = st.session_state.get("ir")
+    if res:
+        st.divider()
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Перенесено", len(res.assignments))
+        m2.metric("Не хватило", len(res.unassigned))
+        m3.metric("Штраф", f"{res.avg_penalty:.1f}")
+        m4.metric("Match", f"{res.avg_match_percent:.1f}%")
+        if res.assignments:
+            # Считаем сколько дат для каждого (weekday, week_type)
+            ir_sd = st.session_state.get("ir_sd", sd)
+            ir_ed = st.session_state.get("ir_ed", ed)
+            date_groups = {}
+            dd = ir_sd
+            while dd <= ir_ed:
+                key = (d2wd(dd), d2wt(dd))
+                date_groups[key] = date_groups.get(key, 0) + 1
+                dd += timedelta(days=1)
+
+            date_map = {}
+            for r in aff:
+                date_map[r["id"]] = r.get("booking_date", str(sd))
+
+            # Группируем по (lesson_id, weekday, start, end) — чтобы не смешивать разные временные слоты
+            lesson_display = {}  # (lid, weekday, start, end) -> dict
+            for sid in sorted(res.assignments):
+                s = res.assignments[sid]
+                info = get_lesson_info(sid)
+                lid = info["lesson_id"]
+                wt_key = (info["weekday"], info["start"], info["end"], info["week_type"])
+                n_dates = date_groups.get(wt_key, 1)
+                bdate = date_map.get(sid, "")
+                t_start = info["start"][11:16] if len(info["start"]) > 5 else info["start"]
+                t_end = info["end"][11:16] if len(info["end"]) > 5 else info["end"]
+                
+                display_key = (lid, info["weekday"], info["start"], info["end"])
+                if display_key not in lesson_display:
+                    lesson_display[display_key] = {
+                        "Время": slot_label(t_start, t_end),
+                        "Тип": info["lesson_type"],
+                        "Предмет": info["lesson_title"],
+                        "Группы": [],
+                        "Было": info["room_name"],
+                        "Стало": f"{s.name} (корп.{s.building}, эт.{s.floor})",
+                        "Штраф": s.penalty,
+                        "%": f"{s.match_percent}%",
+                        "n_dates": n_dates,
+                        "first_date": bdate,
+                    }
+                    # Считаем студентов только для ЭТОГО временного слота
+                    all_sids_for_this_slot = [sid2 for sid2 in res.assignments
+                                               if get_lesson_info(sid2) and 
+                                                  get_lesson_info(sid2)["lesson_id"] == lid and
+                                                  get_lesson_info(sid2)["weekday"] == info["weekday"] and
+                                                  get_lesson_info(sid2)["start"] == info["start"] and
+                                                  get_lesson_info(sid2)["end"] == info["end"]]
+                    total_st = sum(get_lesson_info(s2)["students_count"] for s2 in all_sids_for_this_slot)
+                    n_groups = len(all_sids_for_this_slot)
+                    need_proj = any(get_lesson_info(s2)["needs_projector"] for s2 in all_sids_for_this_slot)
+                    need_comp = any(get_lesson_info(s2)["needs_computers"] for s2 in all_sids_for_this_slot)
+
+                    req_parts = []
+                    req_parts.append(f"👥{total_st}")
+                    if n_groups > 1:
+                        req_parts[0] += f"({n_groups}гр)"
+                    if need_proj:
+                        req_parts.append("📽")
+                    if need_comp:
+                        req_parts.append("💻")
+                    lesson_display[display_key]["Требования"] = " ".join(req_parts)
+
+                lesson_display[display_key]["Группы"].append(info["group_name"])
+
+            rd = []
+            for display_key, ld in lesson_display.items():
+                groups_str = ", ".join(sorted(set(ld["Группы"])))
+                dates_str = ld["first_date"] if ld["n_dates"] <= 1 else f"{ld['first_date']} (+{ld['n_dates']-1} дн.)"
+                row = {
+                    "Дни": dates_str,
+                    "Время": ld["Время"],
+                    "Тип": ld["Тип"],
+                    "Предмет": ld["Предмет"],
+                    "Группы": groups_str,
+                    "Требования": ld["Требования"],
+                    "Было": ld["Было"],
+                    "Стало": ld["Стало"],
+                    "Штраф": ld["Штраф"],
+                    "%": ld["%"],
+                }
+                rd.append(row)
+            st.dataframe(pd.DataFrame(rd), width="stretch", hide_index=True)
+            st.caption(f"«Требования»: 👥=студенты, 📽=проектор, 💻=компьютеры. «Дни» — первая дата и количество затронутых дней.")
+            st.caption(f"Формула штрафа: разные корпуса +100, этаж ×5, лишние места ×1, ненужные компьютеры +10, ненужный проектор +5")
+            if st.button("💾 Сохранить замены", type="primary"):
+                ir_sd = st.session_state.get("ir_sd", sd)
+                ir_ed = st.session_state.get("ir_ed", ed)
+                count = save_transfers(res.assignments, date_map, ir_sd, ir_ed)
+                st.session_state["saved_msg"] = f"✅ Успешно сохранено **{count}** переносов!"
+                st.session_state["ir"] = None
+                st.session_state["ir_sd"] = None
+                st.session_state["ir_ed"] = None
+                st.rerun()
+        if res.unassigned:
+            st.subheader("❌ Не хватило")
+            ua = [
+                {
+                    "Предмет": get_lesson_info(s)["lesson_title"],
+                    "Группа": get_lesson_info(s)["group_name"],
+                }
+                for s in res.unassigned
+            ]
+            st.dataframe(pd.DataFrame(ua), width="stretch", hide_index=True)
+
+
+# ═══ Страница 2: Бронирование ═══
+elif page == "📅 Бронирование":
+    st.title("📅 Бронирование мероприятия")
+
+    if st.session_state.get("evd"):
+        st.success(f"✅ **{st.session_state['evd']}** забронирована на {st.session_state['evt']}!")
+        if st.button("🔄 Забронировать ещё"):
+            st.session_state["evd"] = None
+            st.session_state["evt"] = None
+            st.session_state["evr"] = None
+            st.session_state["evp"] = None
+            st.rerun()
+        st.divider()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        en = st.text_input("Название:", value="Конференция", key="b_name")
+        eo = st.text_input("Организатор:", value="Кафедра ИТ", key="b_org")
+        ec = st.number_input("Участников:", min_value=1, max_value=500, value=30, key="b_att")
+        ep = st.checkbox("Проектор", value=True, key="b_proj")
+        ecomp = st.checkbox("Компьютеры", value=False, key="b_comp")
+    with c2:
+        st.write("**Дата и время:**")
+        today = date.today()
+        sel_date = st.date_input("Дата:", value=today, min_value=date(2026, 1, 12), key="b_date")
+        wd = d2wd(sel_date)
+        wt = d2wt(sel_date)
+        st.caption(f"{wd} ({wt})")
+        ts, te = st.columns(2)
+        with ts:
+            st_start = st.time_input(
+                "Начало:", value=dt(2026, 1, 1, 9, 0).time(), key="b_tstart", step=300
+            )
+        with te:
+            st_end = st.time_input(
+                "Конец:", value=dt(2026, 1, 1, 10, 35).time(), key="b_tend", step=300
+            )
+    es = st_start.strftime("%H:%M")
+    ee = st_end.strftime("%H:%M")
+
+    st.divider()
+    if st.button("🔍 Найти", type="primary"):
+        if es >= ee:
+            st.error("Время конца должно быть больше времени начала")
+        else:
+            with st.spinner("Поиск свободных аудиторий..."):
+                res_all = find_room_for_event(ec, ep, ecomp, wd, to_iso(es), to_iso(ee), wt, 999)
+            # Фильтруем аудитории с конфликтами
+            res = []
+            for r in res_all:
+                if not check_booking_conflict(r["id"], sel_date, es, ee):
+                    res.append(r)
+            st.session_state["evr"] = res
+            st.session_state["evr_all"] = res_all
+            st.session_state["evp"] = {
+                "n": en,
+                "o": eo,
+                "c": ec,
+                "p": ep,
+                "co": ecomp,
+                "date": sel_date,
+                "s": es,
+                "e": ee,
+                "wd": wd,
+                "wt": wt,
+            }
+
+    res = st.session_state.get("evr")
+    res_all = st.session_state.get("evr_all", [])
+    par = st.session_state.get("evp", {})
+    if res is not None:
+        if len(res) == 0:
+            reason = "Все найденные аудитории уже заняты в это время!" if len(res_all) > 0 else "Нет подходящих аудиторий"
+            st.warning(f"⚠️ {reason}")
+            st.divider()
+            st.subheader("💻 Онлайн-формат")
+            st.write("Нет доступных аудиторий? Проведите мероприятие онлайн!")
+            col_onl1, col_onl2 = st.columns(2)
+            with col_onl1:
+                st.write(f"**Название:** {par.get('n', '?')}")
+                st.write(f"**Организатор:** {par.get('o', '?')}")
+                st.write(f"**Участников:** {par.get('c', '?')}")
+            with col_onl2:
+                st.write(f"**Дата:** {par.get('date', '?')}")
+                st.write(f"**Время:** {par.get('s', '?')}–{par.get('e', '?')}")
+            if st.button("🌐 Забронировать онлайн", type="secondary"):
+                # Создаём виртуальную запись "Онлайн"
+                st.success(f"✅ Мероприятие \"{par.get('n', '?')}\" будет проведено онлайн!")
+        elif len(res) > 0:
+            st.subheader(f"Результаты: {par.get('date','?')} {par.get('s','?')}–{par.get('e','?')}")
+            for i, r in enumerate(res, 1):
+                with st.container(border=True):
+                    a, b, c = st.columns([2, 2, 1])
+                    with a:
+                        st.write(f"**#{i} {r['name']}**")
+                        st.caption(f"Корп.{r['building']}, эт.{r['floor']}")
+                    with b:
+                        w = r["capacity"] - par.get("c", 0)
+                        st.write(f"Вместимость: {r['capacity']} (избыток {w})")
+                        eq = []
+                        if r["has_projector"]:
+                            eq.append("📽")
+                        if r["has_computers"]:
+                            eq.append("💻")
+                        st.write(" ".join(eq) if eq else "—")
+                    with c:
+                        if st.button("Забронировать", key=f"bk{i}"):
+                            save_booking(
+                                r, par["n"], par["o"], par["c"], par["date"],
+                                par["s"], par["e"], par["p"], par["co"],
+                            )
+                            st.session_state["evd"] = r["name"]
+                            st.session_state["evt"] = f"{par['date']} {par['s']}–{par['e']}"
+                            st.session_state["evr"] = None
+                            st.session_state["evr_all"] = None
+                            st.session_state["evp"] = None
+                            st.rerun()
+
+
+# ═══ Страница 3: Расписание ═══
+elif page == "📋 Расписание":
+    st.title("📋 Расписание")
+    f0, f1 = st.columns([1, 2])
+    with f0:
+        sel_date = st.date_input(
+            "📆 Дата:", value=date.today(), min_value=date(2026, 1, 12), key="sched_date"
+        )
+    with f1:
+        fb = st.selectbox("Корпус:", ["Все"] + get_buildings())
+
+    sg, sel_wd, sel_wt = get_sched_for_date(sel_date)
+    rms = get_rooms()
+    if fb != "Все":
+        rms = [r for r in rms if r["building"] == fb]
+
+    transfers_date = get_transfers_for_date(sel_date)
+
+    # Объединяем группы для лекций (несколько schedule_id → один lesson_id)
+    merged_transfers = {}
+    for t in transfers_date:
+        k = (t["lesson_title"], t["st"], t["et"])
+        if k not in merged_transfers:
+            merged_transfers[k] = {
+                "lesson_title": t["lesson_title"],
+                "group_names": [t["group_name"]],
+                "old_room": t["old_room"],
+                "new_room": t["new_room"],
+                "new_room_id": t["new_room_id"],
+                "st": t["st"],
+                "et": t["et"],
+                "schedule_ids": {t["schedule_id"]},
+                "lesson_type": t["lesson_type"],
+            }
+        else:
+            merged_transfers[k]["group_names"].append(t["group_name"])
+            merged_transfers[k]["schedule_ids"].add(t["schedule_id"])
+
+    atr = {}
+    tsids = set()
+    for k, mt in merged_transfers.items():
+        atr[(mt["new_room_id"], mt["st"])] = mt
+        tsids.update(mt["schedule_ids"])
+
+    abk = {}
+    for rm in rms:
+        bks = get_bookings_for_date(rm["id"], sel_date)
+        if bks:
+            abk[rm["id"]] = bks
+
+    sm = {}
+    for r in sg:
+        sm[(r["room_id"], r["start"])] = r
+
+    st.subheader(f"{sel_date.strftime('%d.%m.%Y')} — {sel_wd} ({sel_wt})")
+
+    h = '<table style="border-collapse:collapse;width:100%;font-size:12px;">'
+    h += '<tr><th style="border:1px solid #ccc;padding:4px;background:#f0f0f0;position:sticky;left:0;z-index:2;">Аудитория</th>'
+    for sl in SLOTS:
+        h += f'<th style="border:1px solid #ccc;padding:4px;background:#f0f0f0;text-align:center;font-size:11px;">{sl["name"]}<br>{sl["start"]}–{sl["end"]}</th>'
+    h += "</tr>"
+
+    for rm in rms:
+        cap = rm["capacity"]
+        eq_parts = []
+        if rm["has_projector"]:
+            eq_parts.append("📽")
+        if rm["has_computers"]:
+            eq_parts.append("💻")
+        eq_str = " ".join(eq_parts) if eq_parts else "—"
+        h += f'<tr><td style="border:1px solid #ccc;padding:4px;font-weight:bold;background:#fafafa;position:sticky;left:0;font-size:12px;">{rm["name"]}<br><small>{cap} мест {eq_str}</small></td>'
+        for sl in SLOTS:
+            s, e = sl["start"], sl["end"]
+            sk = (rm["id"], s)
+            sc = sm.get(sk)
+            td = atr.get((rm["id"], s))
+
+            cell = ""
+            bg = "#fff"
+            bl = "3px solid transparent"
+
+            if td:
+                groups_str = ", ".join(sorted(set(td.get("group_names", [td.get("group_name", "")]))))
+                lesson_type = td.get("lesson_type", "")
+                type_label = f"<small>{lesson_type}</small><br>" if lesson_type else ""
+                cell = (
+                    f'<div style="font-weight:bold;color:#065f46;">✅ {td["lesson_title"]}</div>'
+                    f'{type_label}'
+                    f'<div style="font-size:10px;">{groups_str}</div>'
+                    f'<div style="font-size:9px;color:#6b7280;">← {td["old_room"]}</div>'
+                )
+                bg, bl = "#d1fae5", "3px solid #059669"
+            elif sc:
+                if any(x in tsids for x in sc["sids"]):
+                    mt = None
+                    for x in sc["sids"]:
+                        if x in tsids:
+                            for t2 in transfers_date:
+                                if t2["schedule_id"] == x:
+                                    mt = t2["new_room"]
+                                    break
+                            if mt:
+                                break
+                        if mt:
+                            break
+                    cell = (
+                        f'<div style="font-weight:bold;color:#991b1b;text-decoration:line-through;">❌ {sc["lesson_title"]}</div>'
+                        f'<div style="font-size:9px;">{sc["lesson_type"]} | {sc["gd"]}</div>'
+                        f'<div style="font-size:9px;color:#dc2626;">→ {mt}</div>'
+                    )
+                    bg, bl = "#fee2e2", "3px solid #dc2626"
+                else:
+                    lec = sc["lesson_type"] == "Лекционные"
+                    cell = (
+                        f'<div style="font-weight:bold;color:#1e40af;font-size:11px;">{sc["lesson_title"]}</div>'
+                        f'<div style="font-size:9px;color:#374151;">{sc["lesson_type"]}<br>{sc["gd"]}</div>'
+                    )
+                    bg, bl = ("#bfdbfe", "3px solid #3b82f6") if lec else ("#dbeafe", "3px solid #3b82f6")
+
+            for bkk in abk.get(rm["id"], []):
+                bk_s = t2m(bkk["st"])
+                bk_e = t2m(bkk["et"])
+                sl_s = t2m(s)
+                sl_e = t2m(e)
+                if bk_s < sl_e and bk_e > sl_s:
+                    cell += (
+                        f'<div style="font-size:10px;font-weight:bold;color:#92400e;margin-top:2px;">📌 {bkk["event_name"]}</div>'
+                        f'<div style="font-size:9px;">{bkk["organizer"]} | {bkk["attendees_count"]}ч.</div>'
+                        f'<div style="font-size:8px;color:#6b7280;">{bkk["st"]}–{bkk["et"]}</div>'
+                    )
+                    if "fee2e2" not in cell and "d1fae5" not in cell:
+                        bg, bl = "#fef3c7", "3px solid #f59e0b"
+
+            if cell:
+                h += f'<td style="border:1px solid #ccc;padding:4px;background:{bg};border-left:{bl};vertical-align:top;">{cell}</td>'
+            else:
+                h += '<td style="border:1px solid #ccc;padding:4px;background:#f9f9f9;color:#ddd;text-align:center;">—</td>'
+        h += "</tr>"
+    h += "</table>"
+    st.markdown("🟦 Занятие | 🟩 Перенесено сюда | 🟥 Перенесено отсюда | 🟨 Мероприятие")
+    st.markdown(h, unsafe_allow_html=True)
+
+
+# ═══ Страница 4: Управление ═══
+elif page == "⚙️ Управление":
+    st.title("⚙️ Управление переносами и бронированиями")
+    t1, t2 = st.tabs(["🔄 Переносы", "📅 Бронирования"])
+
+    with t1:
+        # Загрузка всех переносов
+        c = gc()
+        trs_raw = c.execute("""
+            SELECT t.*,r1.name as old_room,r2.name as new_room,
+                   l.title as lesson_title,l.lesson_type,g.name as group_name
+            FROM transfers t JOIN rooms r1 ON t.old_room_id=r1.id
+            JOIN rooms r2 ON t.new_room_id=r2.id
+            JOIN lessons l ON t.lesson_id=l.id JOIN groups g ON t.group_id=g.id
+            ORDER BY t.booking_date DESC, t.start""").fetchall()
+        c.close()
+
+        if not trs_raw:
+            st.info("Нет переносов")
+        else:
+            # Группируем по (booking_date, lesson_title, start, end, new_room)
+            trs_grouped = {}
+            for t in trs_raw:
+                td = dict(t)
+                bdate = td.get("booking_date") or "?"
+                t_s = t_from_iso(t["start"])
+                t_e = t_from_iso(t["end"])
+                k = (bdate, t["lesson_title"], t_s, t_e, t["new_room"], t["old_room"])
+                if k not in trs_grouped:
+                    trs_grouped[k] = {
+                        "booking_date": bdate,
+                        "lesson_title": t["lesson_title"],
+                        "lesson_type": td.get("lesson_type") or "",
+                        "start": t_s,
+                        "end": t_e,
+                        "new_room": t["new_room"],
+                        "old_room": t["old_room"],
+                        "groups": [t["group_name"]],
+                        "ids": [t["id"]],
+                        "created_at": td.get("created_at", ""),
+                    }
+                else:
+                    trs_grouped[k]["groups"].append(t["group_name"])
+                    trs_grouped[k]["ids"].append(t["id"])
+
+            trs_list = list(trs_grouped.values())
+
+            # Фильтры — пустой = все
+            st.subheader("Фильтры")
+            f0, f1, f2, f3 = st.columns(4)
+            with f0:
+                dates_list = sorted(set(x["booking_date"] for x in trs_list))
+                sel_dates = st.multiselect("Дата:", dates_list, key="f_dates")
+            with f1:
+                subjects = sorted(set(x["lesson_title"] for x in trs_list))
+                sel_subjects = st.multiselect("Предмет:", subjects, key="f_subjects")
+            with f2:
+                old_rooms = sorted(set(x["old_room"] for x in trs_list))
+                sel_rooms = st.multiselect("Из аудитории:", old_rooms, key="f_rooms")
+            with f3:
+                all_grps = set()
+                for x in trs_list:
+                    all_grps.update(x["groups"])
+                sel_groups = st.multiselect("Группа:", sorted(all_grps), key="f_groups")
+
+            # Применяем: пустой фильтр = все
+            trs = [x for x in trs_list
+                   if (not sel_dates or x["booking_date"] in sel_dates)
+                   and (not sel_subjects or x["lesson_title"] in sel_subjects)
+                   and (not sel_rooms or x["old_room"] in sel_rooms)
+                   and (not sel_groups or any(g in sel_groups for g in x["groups"]))]
+
+            # Подсчёт записей (raw — сколько записей в БД)
+            total_db_records = sum(len(x["ids"]) for x in trs_list)
+            shown_records = sum(len(x["ids"]) for x in trs)
+
+            st.divider()
+            col_show, col_del = st.columns([3, 1])
+            with col_show:
+                st.info(f"Показано: **{len(trs)}** переносов ({shown_records} записей в БД)")
+            with col_del:
+                if st.button("🗑 Удалить ВСЕ переносы", type="secondary", key="del_all_transfers"):
+                    c = gc()
+                    c.execute("DELETE FROM transfers")
+                    c.commit()
+                    c.close()
+                    st.success("Удалены все переносы!")
+                    st.rerun()
+
+                if trs and len(trs) < len(trs_list):
+                    if st.button("🗑 Удалить отфильтрованные", type="secondary", key="del_filtered_transfers"):
+                        ids_to_del = []
+                        for x in trs:
+                            ids_to_del.extend(x["ids"])
+                        c = gc()
+                        c.execute(f"DELETE FROM transfers WHERE id IN ({','.join('?' for _ in ids_to_del)})", ids_to_del)
+                        c.commit()
+                        c.close()
+                        st.success(f"Удалено {len(ids_to_del)} записей!")
+                        st.rerun()
+
+            for item in trs:
+                with st.container(border=True):
+                    aa, bb, cc, dd = st.columns([2, 2, 3, 1])
+                    with aa:
+                        st.write(f"**{item['lesson_title']}**")
+                        groups_str = ", ".join(sorted(set(item["groups"])))
+                        type_str = f" ({item['lesson_type']})" if item.get("lesson_type") else ""
+                        st.caption(f"{groups_str}{type_str}")
+                    with bb:
+                        bdate = item["booking_date"]
+                        slabel = slot_label(item["start"], item["end"])
+                        st.write(f"📆 {bdate}")
+                        st.caption(slabel)
+                    with cc:
+                        st.write(f"{item['old_room']} → **{item['new_room']}**")
+                        st.caption(f"Записей в БД: {len(item['ids'])}")
+                    with dd:
+                        if st.button("🗑", key=f"dt{item['ids'][0]}"):
+                            for tid in item["ids"]:
+                                del_transfer(tid)
+                            st.success(f"Удалено {len(item['ids'])} записей")
+                            st.rerun()
+    with t2:
+        c = gc()
+        bks_all = c.execute("""
+            SELECT eb.*,r.name as room_name,r.building,r.floor
+            FROM event_bookings eb JOIN rooms r ON eb.room_id=r.id
+            ORDER BY eb.booking_date DESC""").fetchall()
+        c.close()
+
+        if not bks_all:
+            st.info("Нет бронирований")
+        else:
+            st.subheader("Фильтры")
+            f0, f1, f2 = st.columns(3)
+            with f0:
+                dates_list = sorted(set(dict(b).get("booking_date") for b in bks_all if dict(b).get("booking_date")))
+                sel_dates = st.multiselect("Дата:", dates_list, key="bk_f_dates")
+            with f1:
+                rooms_list = sorted(set(b["room_name"] for b in bks_all))
+                sel_rooms = st.multiselect("Аудитория:", rooms_list, key="bk_f_rooms")
+            with f2:
+                events_list = sorted(set(b["event_name"] for b in bks_all))
+                sel_events = st.multiselect("Мероприятие:", events_list, key="bk_f_events")
+
+            bks = [b for b in bks_all
+                   if (not sel_dates or dict(b).get("booking_date") in sel_dates)
+                   and (not sel_rooms or b["room_name"] in sel_rooms)
+                   and (not sel_events or b["event_name"] in sel_events)]
+
+            st.divider()
+            col_show, col_del = st.columns([3, 1])
+            with col_show:
+                st.info(f"Показано: **{len(bks)}** из {len(bks_all)} бронирований")
+            with col_del:
+                if st.button("🗑 Удалить ВСЕ бронирования", type="secondary", key="del_all_bookings"):
+                    c = gc()
+                    c.execute("DELETE FROM event_bookings")
+                    c.commit()
+                    c.close()
+                    st.success(f"Удалено все {len(bks_all)} бронирований!")
+                    st.rerun()
+                if bks and len(bks) < len(bks_all):
+                    if st.button("🗑 Удалить отфильтрованные", type="secondary", key="del_filtered_bookings"):
+                        ids = [b["id"] for b in bks]
+                        c = gc()
+                        c.execute(f"DELETE FROM event_bookings WHERE id IN ({','.join('?' for _ in ids)})", ids)
+                        c.commit()
+                        c.close()
+                        st.success(f"Удалено {len(ids)} бронирований!")
+                        st.rerun()
+
+            for b in bks:
+                with st.container(border=True):
+                    aa, bb, cc, dd = st.columns([2, 2, 3, 1])
+                    with aa:
+                        st.write(f"**{b['event_name']}**")
+                        st.caption(f"{b['organizer']} | {b['attendees_count']} чел.")
+                    with bb:
+                        bdate = dict(b).get("booking_date") or "?"
+                        b_s = t_from_iso(b["start"])
+                        b_e = t_from_iso(b["end"])
+                        slabel = slot_label(b_s, b_e)
+                        st.write(f"📆 {bdate}")
+                        st.caption(slabel)
+                    with cc:
+                        st.write(f"{b['room_name']} (корп.{b['building']}, эт.{b['floor']})")
+                    with dd:
+                        if st.button("🗑", key=f"db{b['id']}"):
+                            del_booking(b["id"])
+                            st.success("Удалено")
+                            st.rerun()
