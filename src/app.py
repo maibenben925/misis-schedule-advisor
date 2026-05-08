@@ -11,6 +11,17 @@ from src.optimization import mass_reallocate
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
 
+if not os.path.exists(DB_PATH):
+    st.set_page_config(page_title="Корректировка расписания", layout="wide")
+    st.error("База данных не найдена: `data/schedule.db`")
+    st.markdown("**Создайте БД одним из способов:**\n\n"
+                "1. Двойной клик `run.bat` — автоматически\n\n"
+                "2. Вручную:\n```\n"
+                "pip install -r requirements.txt\n"
+                "python pipeline/build_db.py\n```\n\n"
+                "Скрипт скачает расписание с API `schedule.misis.club` (~2 мин).")
+    st.stop()
+
 st.set_page_config(
     page_title="Корректировка расписания",
     page_icon="🏫", layout="wide",

@@ -1,5 +1,15 @@
 # Python >= 3.12
-streamlit==1.56.0
-scipy==1.17.1
-pandas==3.0.2
-numpy==2.4.4
+
+# UI
+streamlit>=1.30
+
+# Оптимизация
+scipy>=1.11
+numpy>=1.24
+
+# Таблицы в UI
+pandas>=2.0
+
+# Парсинг расписания (pipeline)
+icalendar>=7.0
+requests>=2.28
