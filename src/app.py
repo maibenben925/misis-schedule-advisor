@@ -325,6 +325,67 @@ def del_booking(bid):
     c.close()
 
 
+@st.dialog("Подтверждение бронирования")
+def _show_booking_confirm_dialog(data):
+    room = data["room"]
+    par = data["par"]
+    rm_name = room["name"]
+    rm_bld = room["building"]
+    rm_fl = room["floor"]
+    rm_cap = room["capacity"]
+    p_name = par.get("n", "?")
+    p_org = par.get("o", "?")
+    p_att = par.get("c", "?")
+    p_date = par.get("date", "?")
+    p_s = par.get("s", "?")
+    p_e = par.get("e", "?")
+    p_wd = par.get("wd", "")
+    p_wt = par.get("wt", "")
+    wt_label = "верхняя" if p_wt == "upper" else "нижняя" if p_wt else ""
+
+    st.write(f"**Аудитория:** {rm_name} (корп. {rm_bld}, эт. {rm_fl})")
+    st.write(f"**Вместимость:** {rm_cap} мест")
+    eq = []
+    if room.get("has_projector"):
+        eq.append("Проектор")
+    if room.get("has_computers"):
+        eq.append("Компьютеры")
+    st.write(f"**Оборудование:** {' | '.join(eq) if eq else '—'}")
+    st.divider()
+    st.write(f"**Мероприятие:** {p_name}")
+    st.write(f"**Организатор:** {p_org}")
+    st.write(f"**Участников:** {p_att}")
+    st.write(f"**Дата:** {p_date} ({p_wd}, {wt_label} неделя)")
+    st.write(f"**Время:** {p_s}–{p_e}")
+
+    need_proj = par.get("p", False)
+    need_comp = par.get("co", False)
+    if need_proj and not room.get("has_projector"):
+        st.warning("Внимание: мероприятию требуется проектор, но в аудитории его нет!")
+    if need_comp and not room.get("has_computers"):
+        st.warning("Внимание: мероприятию требуются компьютеры, но в аудитории их нет!")
+
+    st.divider()
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("✅ Подтвердить", type="primary", use_container_width=True):
+            save_booking(
+                room, p_name, p_org, p_att, p_date,
+                p_s, p_e, need_proj, need_comp,
+            )
+            st.session_state["evd"] = rm_name
+            st.session_state["evt"] = f"{p_date} {p_s}–{p_e}"
+            st.session_state["evr"] = None
+            st.session_state["evr_all"] = None
+            st.session_state["evp"] = None
+            st.session_state["confirm_booking"] = None
+            st.rerun()
+    with c2:
+        if st.button("❌ Отмена", use_container_width=True):
+            st.session_state["confirm_booking"] = None
+            st.rerun()
+
+
 # ═══ NAV ═══
 page = st.sidebar.radio(
     "Навигация:",
@@ -609,16 +670,14 @@ elif page == "📅 Бронирование":
                         st.write(" ".join(eq) if eq else "—")
                     with c:
                         if st.button("Забронировать", key=f"bk{i}"):
-                            save_booking(
-                                r, par["n"], par["o"], par["c"], par["date"],
-                                par["s"], par["e"], par["p"], par["co"],
-                            )
-                            st.session_state["evd"] = r["name"]
-                            st.session_state["evt"] = f"{par['date']} {par['s']}–{par['e']}"
-                            st.session_state["evr"] = None
-                            st.session_state["evr_all"] = None
-                            st.session_state["evp"] = None
-                            st.rerun()
+                            st.session_state["confirm_booking"] = {
+                                "room": dict(r),
+                                "par": par,
+                            }
+
+    confirm = st.session_state.get("confirm_booking")
+    if confirm:
+        _show_booking_confirm_dialog(confirm)
 
 
 # ═══ Страница 3: Расписание ═══
