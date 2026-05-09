@@ -230,7 +230,7 @@ def get_bookings_for_date(room_id, sel_date):
 
 
 def check_booking_conflict(room_id, sel_date, s, e, exclude_bid=None):
-    """Проверить конфликт по КОНКРЕТНОЙ дате."""
+    """Проверить конфликт по КОНКРЕТНОЙ дате (учитывает schedule, transfers, event_bookings)."""
     c = gc()
     q = """SELECT COUNT(*) as cnt FROM event_bookings
            WHERE room_id=? AND booking_date=?
@@ -249,9 +249,21 @@ def check_booking_conflict(room_id, sel_date, s, e, exclude_bid=None):
         SELECT COUNT(*) as cnt FROM schedule
         WHERE room_id=? AND weekday=? AND week_type=?
         AND substr(start,12,5) < ? AND substr(end,12,5) > ?
-    """, (room_id, wd, wt, e, s)).fetchone()
+        AND id NOT IN (
+            SELECT t.schedule_id FROM transfers t
+            WHERE t.booking_date=? AND t.old_room_id=?
+        )
+    """, (room_id, wd, wt, e, s, str(sel_date), room_id)).fetchone()
+    if r2["cnt"] > 0:
+        c.close()
+        return True
+    r3 = c.execute("""
+        SELECT COUNT(*) as cnt FROM transfers
+        WHERE new_room_id=? AND booking_date=?
+        AND substr(start,12,5) < ? AND substr(end,12,5) > ?
+    """, (room_id, str(sel_date), e, s)).fetchone()
     c.close()
-    return r2["cnt"] > 0
+    return r3["cnt"] > 0
 
 
 def save_transfers(assignments, date_map, sd, ed):
@@ -535,7 +547,7 @@ elif page == "📅 Бронирование":
             st.error("Время конца должно быть больше времени начала")
         else:
             with st.spinner("Поиск свободных аудиторий..."):
-                res_all = find_room_for_event(ec, ep, ecomp, wd, to_iso(es), to_iso(ee), wt, 999)
+                res_all = find_room_for_event(ec, ep, ecomp, wd, to_iso(es), to_iso(ee), wt, 999, booking_date=str(sel_date))
             # Фильтруем аудитории с конфликтами
             res = []
             for r in res_all:

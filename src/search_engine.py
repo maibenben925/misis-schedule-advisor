@@ -25,30 +25,84 @@ def get_free_rooms(
     week_type: str,
     *,
     exclude_room_id: int | None = None,
+    booking_date: str | None = None,
 ) -> list[sqlite3.Row]:
     """
     Возвращает список аудиторий, которые НЕ заняты в указанный слот времени.
 
-    Занятость = пересечение по weekday, week_type и временному интервалу.
-    Два интервала пересекаются, если A.start < B.end AND A.end > B.start.
+    Занятость определяется с учётом:
+    - базового расписания (schedule)
+    - переносов (transfers): IN — аудитория занята, OUT — аудитория свободна
+    - бронирований мероприятий (event_bookings)
+
+    Если указан booking_date (YYYY-MM-DD), проверка точная по дате:
+    - расписание минус перенесённые OUT на эту дату
+    - плюс перенесённые IN на эту дату
+    - плюс бронирования на эту дату
+
+    Если booking_date не указан, проверка по паттерну (weekday + week_type):
+    - базовое расписание + перенесённые IN + бронирования (консервативно).
     """
     conn = _connect()
 
-    query = """
-        SELECT r.id, r.name, r.building, r.floor,
-               r.capacity, r.has_projector, r.has_computers
-        FROM rooms r
-        WHERE r.building NOT IN ('Онлайн', 'Каф. ИЯКТ', 'Спортивный комплекс Беляево')
-        AND r.id NOT IN (
-            SELECT s.room_id
-            FROM schedule s
-            WHERE s.weekday = ?
-              AND s.week_type = ?
-              AND s.start < ?
-              AND s.end > ?
-        )
-    """
-    params = [weekday, week_type, end, start]
+    start_hhmm = start[11:16] if len(start) > 16 else start
+    end_hhmm = end[11:16] if len(end) > 16 else end
+
+    if booking_date is not None:
+        query = """
+            SELECT r.id, r.name, r.building, r.floor,
+                   r.capacity, r.has_projector, r.has_computers
+            FROM rooms r
+            WHERE r.building NOT IN ('Онлайн', 'Каф. ИЯКТ', 'Спортивный комплекс Беляево')
+            AND r.id NOT IN (
+                SELECT s.room_id FROM schedule s
+                WHERE s.weekday = ? AND s.week_type = ?
+                  AND s.start < ? AND s.end > ?
+                  AND s.id NOT IN (
+                      SELECT t.schedule_id FROM transfers t
+                      WHERE t.booking_date = ?
+                  )
+                UNION
+                SELECT t.new_room_id FROM transfers t
+                WHERE t.booking_date = ? AND t.weekday = ? AND t.week_type = ?
+                  AND t.start < ? AND t.end > ?
+                UNION
+                SELECT eb.room_id FROM event_bookings eb
+                WHERE eb.booking_date = ?
+                  AND substr(eb.start,12,5) < ? AND substr(eb.end,12,5) > ?
+            )
+        """
+        params = [
+            weekday, week_type, end, start,
+            booking_date,
+            booking_date, weekday, week_type, end, start,
+            booking_date, end_hhmm, start_hhmm,
+        ]
+    else:
+        query = """
+            SELECT r.id, r.name, r.building, r.floor,
+                   r.capacity, r.has_projector, r.has_computers
+            FROM rooms r
+            WHERE r.building NOT IN ('Онлайн', 'Каф. ИЯКТ', 'Спортивный комплекс Беляево')
+            AND r.id NOT IN (
+                SELECT s.room_id FROM schedule s
+                WHERE s.weekday = ? AND s.week_type = ?
+                  AND s.start < ? AND s.end > ?
+                UNION
+                SELECT DISTINCT t.new_room_id FROM transfers t
+                WHERE t.weekday = ? AND t.week_type = ?
+                  AND t.start < ? AND t.end > ?
+                UNION
+                SELECT DISTINCT eb.room_id FROM event_bookings eb
+                WHERE eb.weekday = ? AND eb.week_type = ?
+                  AND substr(eb.start,12,5) < ? AND substr(eb.end,12,5) > ?
+            )
+        """
+        params = [
+            weekday, week_type, end, start,
+            weekday, week_type, end, start,
+            weekday, week_type, end_hhmm, start_hhmm,
+        ]
 
     if exclude_room_id is not None:
         query += " AND r.id != ?"
@@ -170,14 +224,18 @@ def find_room_for_event(
     end: str,
     week_type: str,
     top_n: int = 5,
+    booking_date: str | None = None,
 ) -> list[sqlite3.Row]:
     """
     Найти лучшие аудитории для внеучебного мероприятия.
 
     Возвращает топ-N аудиторий, отсортированных по минимальному
     избытку вместимости (ближе к requested capacity — лучше).
+
+    Если указан booking_date, поиск учитывает переносы и бронирования
+    на конкретную дату.
     """
-    free_rooms = get_free_rooms(weekday, start, end, week_type)
+    free_rooms = get_free_rooms(weekday, start, end, week_type, booking_date=booking_date)
 
     # Моковые данные: у мероприятия нет группы, поэтому students_count = capacity
     valid = filter_rooms(free_rooms, capacity, needs_projector, needs_computers)
