@@ -66,8 +66,9 @@ def d2wd(d):
     return WD_R.get(d.weekday(), "")
 
 
-def to_iso(t):
-    return f"2026-01-12T{t}:00+03:00"
+def to_iso(t, d=None):
+    dt = str(d) if d else "2026-01-12"
+    return f"{dt}T{t}:00+03:00"
 
 
 def t_from_iso(s):
@@ -304,7 +305,7 @@ def save_booking(room, name, org, att, sel_date, s, e, p, co):
     c = gc()
     c.execute(
         "INSERT INTO event_bookings(room_id,weekday,start,end,week_type,event_name,organizer,attendees_count,needs_projector,needs_computers,booking_date) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-        (room["id"], wd, to_iso(s), to_iso(e), wt, name, org, att, p, co, str(sel_date)),
+        (room["id"], wd, to_iso(s, sel_date), to_iso(e, sel_date), wt, name, org, att, p, co, str(sel_date)),
     )
     c.commit()
     c.close()
@@ -547,7 +548,7 @@ elif page == "📅 Бронирование":
             st.error("Время конца должно быть больше времени начала")
         else:
             with st.spinner("Поиск свободных аудиторий..."):
-                res_all = find_room_for_event(ec, ep, ecomp, wd, to_iso(es), to_iso(ee), wt, 999, booking_date=str(sel_date))
+                res_all = find_room_for_event(ec, ep, ecomp, wd, to_iso(es, sel_date), to_iso(ee, sel_date), wt, 999, booking_date=str(sel_date))
             # Фильтруем аудитории с конфликтами
             res = []
             for r in res_all:
