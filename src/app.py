@@ -8,6 +8,7 @@ from datetime import date, timedelta, datetime as dt
 
 from src.search_engine import get_lesson_info, find_room_for_event
 from src.optimization import mass_reallocate
+from src.stats import pc_utilization, capacity_demand, transfer_destinations, fund_summary_with_transfers
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
 
@@ -389,7 +390,7 @@ def _show_booking_confirm_dialog(data):
 # ═══ NAV ═══
 page = st.sidebar.radio(
     "Навигация:",
-    ["🔧 Инциденты", "📅 Бронирование", "📋 Расписание", "⚙️ Управление"],
+    ["🔧 Инциденты", "📅 Бронирование", "📋 Расписание", "📊 Статистика", "⚙️ Управление"],
 )
 
 
@@ -823,7 +824,154 @@ elif page == "📋 Расписание":
     st.markdown(h, unsafe_allow_html=True)
 
 
-# ═══ Страница 4: Управление ═══
+# ═══ Страница 4: Статистика ═══
+elif page == "📊 Статистика":
+    st.title("📊 Статистика аудиторного фонда")
+
+    pc = pc_utilization()
+    cd = capacity_demand()
+    td = transfer_destinations()
+    fs = fund_summary_with_transfers()
+
+    # ── 1. Сводка по фонду ──
+    st.subheader("Сводка по аудиторному фонду")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Аудиторий", fs["rooms"])
+    m2.metric("Корпусов", fs["buildings"])
+    m3.metric("Уникальных занятий", fs["unique_lesson_slots"])
+    m4.metric("Учебных групп", fs["groups"])
+
+    m5, m6, m7, m8 = st.columns(4)
+    m5.metric("Записей в расписании", fs["schedule_entries"])
+    m6.metric("Общая вместимость", f'{fs["total_capacity"]} мест')
+    m7.metric("Бронирований", fs["bookings"])
+    m8.metric("Переносов", fs["transfers"])
+
+    # ── 2. Компьютерные классы ──
+    st.subheader("Использование компьютерных классов")
+    st.caption("Компьютерные классы — дефицитный ресурс. Если они заняты обычными занятиями, лабораторным не хватает ПК.")
+
+    comp_df = pd.DataFrame([{
+        "Метрика": "Компьютерных аудиторий",
+        "Значение": pc["rooms_total"],
+    }, {
+        "Метрика": "Занятий, требующих ПК",
+        "Значение": pc["lessons_needing_pc"],
+    }, {
+        "Метрика": "Используются по назначению",
+        "Значение": pc["rooms_for_comp"],
+    }, {
+        "Метрика": "Заняты обычными занятиями (трата ресурса)",
+        "Значение": pc["rooms_for_noncomp"],
+    }, {
+        "Метрика": "Слотов с ПК-занятиями",
+        "Значение": pc["slots_for_comp"],
+    }, {
+        "Метрика": "Слотов с обычными занятиями впустую",
+        "Значение": pc["slots_for_noncomp"],
+    }])
+    st.dataframe(comp_df, width="stretch", hide_index=True)
+
+    if pc["wasted_rooms"]:
+        st.write("**Компьютерные классы, где больше всего «пустых» слотов:**")
+        wr_df = pd.DataFrame([{
+            "Аудитория": r["name"],
+            "Корпус": r["building"],
+            "Вместимость": r["capacity"],
+            "Всего занятий": r["total_slots"],
+            "Из них без потребности в ПК": r["wasted_slots"],
+        } for r in pc["wasted_rooms"]])
+        st.dataframe(wr_df, width="stretch", hide_index=True)
+
+    if pc["rooms_for_noncomp"] > 0:
+        pct_waste = round(pc["slots_for_noncomp"] / (pc["slots_for_comp"] + pc["slots_for_noncomp"]) * 100, 1) if (pc["slots_for_comp"] + pc["slots_for_noncomp"]) > 0 else 0
+        st.warning(
+            f"**Вывод:** {pc['rooms_for_noncomp']} из {pc['rooms_total']} компьютерных классов "
+            f"заняты обычными занятиями. {pct_waste}% слотов дефицитного ресурса "
+            f"тратятся впустую. Рекомендуется пересмотреть расписание и освободить "
+            f"компьютерные классы для занятий, реально требующих ПК."
+        )
+    else:
+        st.info("**Вывод:** Все компьютерные классы используются по назначению — дефицита нет.")
+
+    # ── 3. Вместимость ──
+    st.subheader("Загрузка по вместимости")
+    st.caption("Сравнение слотов: сколько занято vs сколько доступно. Переполнение — занятия, которым нужна эта категория, но стоят в большей из-за отсутствия подходящих.")
+
+    cd_df = pd.DataFrame([{
+        "Вместимость": r["range"],
+        "Аудиторий": r["rooms"],
+        "Слотов доступно": r["total_slots"],
+        "Слотов занято": r["occupied_slots"],
+        "Загрузка": f'{r["load_pct"]}%',
+        "Переполнение": r["overflow"],
+    } for r in cd])
+    st.dataframe(cd_df, width="stretch", hide_index=True)
+
+    cd_chart = pd.DataFrame([{
+        "Вместимость": r["range"],
+        "Занято": r["occupied_slots"],
+        "Свободно": r["free_slots"],
+    } for r in cd if r["total_slots"] > 0])
+    if not cd_chart.empty:
+        st.bar_chart(cd_chart, x="Вместимость", y=["Занято", "Свободно"])
+
+    overflow_ranges = [r for r in cd if r["overflow"] > 0]
+    high_load = [r for r in cd if r["load_pct"] > 70 and r["overflow"] == 0]
+    low_load = [r for r in cd if r["total_slots"] > 0 and r["load_pct"] < 15]
+
+    if overflow_ranges:
+        labels = ", ".join(f"{r['range']} ({r['overflow']} занятий)" for r in overflow_ranges)
+        st.warning(
+            f"**Переполнение:** Нет аудиторий вместимостью {labels}. "
+            f"Эти занятия ставятся в более крупные аудитории — перерасход фонда. "
+            f"Рекомендуется добавить малые аудитории (перегородки, переговорки)."
+        )
+    if high_load:
+        labels = ", ".join(f"{r['range']} ({r['load_pct']}%)" for r in high_load)
+        st.warning(
+            f"**Высокая загрузка:** Категория {labels}. "
+            f"При инцидентах может не хватить свободных слотов для переноса."
+        )
+    if low_load:
+        labels = ", ".join(f"{r['range']} ({r['load_pct']}%)" for r in low_load)
+        st.info(
+            f"**Резерв:** Категория {labels} — много свободных слотов, "
+            f"можно использовать для переноса занятий при инцидентах."
+        )
+    if not overflow_ranges and not high_load:
+        st.info("**Вывод:** Аудиторный фонд сбалансирован по вместимости — критического дефицита нет.")
+
+    # ── 4. Переносы ──
+    st.subheader("Аудитории — получатели переносов")
+    if td["total_transfers"] == 0:
+        st.info("Переносов ещё не было. Данные появятся после использования страницы «Инциденты».")
+    else:
+        st.caption("Аудитории, которые чаще всего принимают перенесённые занятия — «рабочие лошадки»")
+        td_df = pd.DataFrame([{
+            "Аудитория": r["name"],
+            "Корпус": r["building"],
+            "Вместимость": r["capacity"],
+            "Принято переносов": r["transfer_count"],
+            "Дат затронуто": r["dates_affected"],
+        } for r in td["top_rooms"]])
+        st.dataframe(td_df, width="stretch", hide_index=True)
+
+        if td["top_rooms"]:
+            top = td["top_rooms"][0]
+            st.info(
+                f"**Вывод:** Аудитория **{top['name']}** (корп. {top['building']}) — "
+                f"основной получатель переносов ({top['transfer_count']} из {td['total_transfers']}). "
+                f"Её закрытие критично для системы корректировки расписания."
+            )
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Всего корректировок", fs["transfers"])
+        m2.metric("Дат затронуто", fs["transfer_dates"])
+        m3.metric("Аудиторий задействовано", fs["transfer_rooms"])
+
+
+# ═══ Страница 5: Управление ═══
 elif page == "⚙️ Управление":
     st.title("⚙️ Управление переносами и бронированиями")
     t1, t2 = st.tabs(["🔄 Переносы", "📅 Бронирования"])
