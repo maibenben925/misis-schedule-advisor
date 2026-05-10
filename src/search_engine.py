@@ -62,6 +62,10 @@ def get_free_rooms(
                       SELECT t.schedule_id FROM transfers t
                       WHERE t.booking_date = ?
                   )
+                  AND s.id NOT IN (
+                      SELECT c.schedule_id FROM cancellations c
+                      WHERE c.cancel_date = ? AND c.is_restored = 0
+                  )
                 UNION
                 SELECT t.new_room_id FROM transfers t
                 WHERE t.booking_date = ? AND t.weekday = ? AND t.week_type = ?
@@ -74,6 +78,7 @@ def get_free_rooms(
         """
         params = [
             weekday, week_type, end, start,
+            booking_date,
             booking_date,
             booking_date, weekday, week_type, end, start,
             booking_date, end_hhmm, start_hhmm,

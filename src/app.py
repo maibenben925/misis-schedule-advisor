@@ -9,6 +9,25 @@ from datetime import date, timedelta, datetime as dt
 from src.search_engine import get_lesson_info, find_room_for_event
 from src.optimization import mass_reallocate
 from src.stats import pc_utilization, capacity_demand, transfer_destinations, fund_summary_with_transfers
+from src.cancellation import (
+    ensure_cancellations_table,
+    preview_cancel_by_teacher,
+    preview_cancel_by_discipline,
+    preview_cancel_single,
+    apply_cancels,
+    get_cancellations,
+    get_active_cancellations_for_date,
+    get_restored_for_date,
+    find_restore_slots,
+    restore_lesson,
+    mass_restore,
+    mass_restore_preview,
+    delete_cancellation,
+    get_all_teachers,
+    get_all_disciplines,
+    CancelPreview,
+    RestoreSlot,
+)
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
 
@@ -111,6 +130,7 @@ def ensure_tables():
 
 
 ensure_tables()
+ensure_cancellations_table()
 
 
 def get_rooms():
@@ -390,7 +410,7 @@ def _show_booking_confirm_dialog(data):
 # ═══ NAV ═══
 page = st.sidebar.radio(
     "Навигация:",
-    ["🔧 Инциденты", "📅 Бронирование", "📋 Расписание", "📊 Статистика", "⚙️ Управление"],
+    ["🔧 Инциденты", "📅 Бронирование", "❌ Отмена занятий", "📋 Расписание", "📊 Статистика", "⚙️ Управление"],
 )
 
 
@@ -681,7 +701,243 @@ elif page == "📅 Бронирование":
         _show_booking_confirm_dialog(confirm)
 
 
-# ═══ Страница 3: Расписание ═══
+# ═══ Страница 3: Отмена занятий ═══
+elif page == "❌ Отмена занятий":
+    st.title("❌ Отмена и восстановление занятий")
+    tab_cancel, tab_restore, tab_log = st.tabs(["🚫 Отмена", "🔄 Восстановление", "📜 Журнал"])
+
+    with tab_cancel:
+        ct = st.radio("Тип отмены:", ["По преподавателю", "По дисциплине", "Одиночная"], horizontal=True)
+        ca, cb = st.columns(2)
+        with ca:
+            if ct == "По преподавателю":
+                teachers = get_all_teachers()
+                sel_teacher = st.selectbox("Преподаватель:", teachers, key="cn_teacher")
+            elif ct == "По дисциплине":
+                disciplines = get_all_disciplines()
+                sel_disc = st.selectbox("Дисциплина:", disciplines, key="cn_disc")
+            else:
+                c = gc()
+                all_sched = c.execute("""
+                    SELECT s.id, l.title || ' (' || l.lesson_type || ') — ' ||
+                           g.name || ' — ' || s.weekday || ' ' ||
+                           substr(s.start,12,5) AS label
+                    FROM schedule s
+                    JOIN lessons l ON s.lesson_id = l.id
+                    JOIN groups g ON s.group_id = g.id
+                    ORDER BY l.title, s.weekday
+                """).fetchall()
+                c.close()
+                sched_opts = {r["label"]: r["id"] for r in all_sched}
+                sel_sched_label = st.selectbox("Занятие:", list(sched_opts.keys()), key="cn_single")
+                sel_sched_id = sched_opts.get(sel_sched_label)
+        with cb:
+            today = date.today()
+            d1, d2 = st.columns(2)
+            with d1:
+                cn_sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12), key="cn_sd")
+            with d2:
+                cn_ed = st.date_input("Конец:", value=cn_sd + timedelta(days=13), min_value=cn_sd, key="cn_ed")
+            if ct == "Одиночная":
+                cn_single_date = st.date_input("Дата отмены:", value=today, min_value=date(2026, 1, 12), key="cn_single_date")
+            cn_reason = st.text_input("Причина:", value="Болезнь преподавателя", key="cn_reason")
+
+        st.divider()
+
+        if st.button("🔍 Предпросмотр", type="primary", key="cn_preview_btn"):
+            if ct == "По преподавателю":
+                previews = preview_cancel_by_teacher(sel_teacher, cn_sd, cn_ed)
+            elif ct == "По дисциплине":
+                previews = preview_cancel_by_discipline(sel_disc, cn_sd, cn_ed)
+            else:
+                if sel_sched_id:
+                    previews = preview_cancel_single(sel_sched_id, cn_single_date)
+                else:
+                    previews = []
+            st.session_state["cn_previews"] = previews
+
+        previews = st.session_state.get("cn_previews", [])
+        if previews:
+            st.info(f"Будет отменено: **{len(previews)}** занятий")
+            cn_df = pd.DataFrame([{
+                "Дата": p.cancel_date,
+                "Предмет": p.lesson_title,
+                "Тип": p.lesson_type,
+                "Преподаватель": p.teacher,
+                "Группа": p.group_name,
+                "Аудитория": p.room_name,
+                "День": p.weekday,
+                "Время": f"{p.start}–{p.end}",
+            } for p in previews])
+            st.dataframe(cn_df, width="stretch", hide_index=True)
+
+            if st.button("✅ Подтвердить отмену", type="primary", key="cn_apply_btn"):
+                count = apply_cancels(previews, cn_reason)
+                st.session_state["cn_previews"] = []
+                st.session_state["cn_msg"] = f"✅ Отменено **{count}** занятий"
+                st.rerun()
+
+        if st.session_state.get("cn_msg"):
+            st.success(st.session_state["cn_msg"])
+            if st.button("🔄 Новая отмена", key="cn_new"):
+                st.session_state["cn_msg"] = None
+                st.rerun()
+
+    with tab_restore:
+        c = gc()
+        active = c.execute("""
+            SELECT c.id, c.cancel_date, c.reason,
+                   l.title AS lesson_title, l.lesson_type, l.teacher,
+                   g.name AS group_name,
+                   s.weekday, substr(s.start,12,5) as st, substr(s.end,12,5) as et
+            FROM cancellations c
+            JOIN schedule s ON c.schedule_id = s.id
+            JOIN lessons l ON s.lesson_id = l.id
+            JOIN groups g ON s.group_id = g.id
+            WHERE c.is_restored = 0
+            ORDER BY c.cancel_date DESC
+        """).fetchall()
+        c.close()
+
+        if not active:
+            st.info("Нет отменённых занятий для восстановления")
+        else:
+            r_opts = {}
+            for r in active:
+                label = f"{r['cancel_date']} | {r['lesson_title']} ({r['lesson_type']}) — {r['group_name']} — {r['weekday']} {r['st']}–{r['et']}"
+                r_opts[label] = r["id"]
+
+            restore_mode = st.radio("Режим:", ["Одиночное", "Массовое"], horizontal=True, key="rs_mode")
+
+            if restore_mode == "Массовое":
+                sel_labels = st.multiselect("Отменённые занятия:", list(r_opts.keys()), key="rs_multi")
+                sel_cids = [r_opts[l] for l in sel_labels if l in r_opts]
+
+                if sel_cids:
+                    st.info(f"Выбрано **{len(sel_cids)}** занятий для восстановления")
+                    if st.button("🔍 Предпросмотр восстановления", type="primary", key="rs_mass_preview_btn"):
+                        with st.spinner("Поиск свободных слотов..."):
+                            pv = mass_restore_preview(sel_cids)
+                        st.session_state["rs_mass_pv"] = pv
+                        st.session_state["rs_mass_cids"] = sel_cids
+
+                    pv = st.session_state.get("rs_mass_pv")
+                    if pv:
+                        has_slots = [p for p in pv if p["has_slot"]]
+                        no_slots = [p for p in pv if not p["has_slot"]]
+                        m1, m2 = st.columns(2)
+                        m1.metric("Можно восстановить", len(has_slots))
+                        m2.metric("Нет свободных слотов", len(no_slots))
+
+                        if has_slots:
+                            st.subheader("План восстановления")
+                            pv_df = pd.DataFrame([{
+                                "Предмет": p["lesson_title"],
+                                "Тип": p["lesson_type"],
+                                "Группы": p["group_names"],
+                                "Было": f'{p["orig_weekday"]} {p["orig_start"]}–{p["orig_end"]}',
+                                "Было ауд.": p["orig_room"],
+                                "Станет": f'{p["new_weekday"]} {p["new_start"]}–{p["new_end"]}',
+                                "Станет ауд.": p["new_room"],
+                                "Дата восстановления": p["new_date"],
+                                "Штраф": p["penalty"],
+                            } for p in has_slots])
+                            st.dataframe(pv_df, width="stretch", hide_index=True)
+
+                        if no_slots:
+                            st.warning(f"⚠️ **{len(no_slots)}** занятий — нет свободных слотов:")
+                            for p in no_slots:
+                                st.write(f"  • {p['lesson_title']} ({p['group_names']}) — {p['orig_weekday']} {p['orig_start']}")
+
+                        if has_slots and st.button("✅ Подтвердить восстановление", type="primary", key="rs_mass_confirm_btn"):
+                            cids_to_restore = [p["cancel_id"] for p in has_slots]
+                            with st.spinner("Восстановление..."):
+                                result = mass_restore(cids_to_restore)
+                            st.session_state["rs_mass_result"] = result
+                            st.session_state["rs_mass_pv"] = None
+                            st.rerun()
+
+                if st.session_state.get("rs_mass_result"):
+                    mr = st.session_state["rs_mass_result"]
+                    m1, m2, m3 = st.columns(3)
+                    m1.metric("Восстановлено", mr["restored"])
+                    m2.metric("Нет слотов", mr["no_slots"])
+                    m3.metric("Ошибки", mr["failed"])
+                    if mr["details"]:
+                        st.subheader("Результаты восстановления")
+                        det_df = pd.DataFrame([{
+                            "Предмет": d.get("lesson_title", ""),
+                            "Тип": d.get("lesson_type", ""),
+                            "Группа": d.get("group_name", ""),
+                            "Статус": "✅ Восстановлено" if d["status"] == "restored" else "⚠️ Нет слотов",
+                            "Новый слот": f'{d.get("new_weekday", "")} {d.get("new_start", "")}–{d.get("new_end", "")}' if d["status"] == "restored" else "—",
+                            "Новая аудитория": d.get("new_room", "—"),
+                            "Штраф": d.get("penalty", "—"),
+                        } for d in mr["details"]])
+                        st.dataframe(det_df, width="stretch", hide_index=True)
+                    if st.button("🔄 Новое восстановление", key="rs_mass_new"):
+                        st.session_state["rs_mass_result"] = None
+                        st.rerun()
+
+            else:
+                sel_label = st.selectbox("Отменённое занятие:", list(r_opts.keys()), key="rs_sel")
+                sel_cid = r_opts.get(sel_label)
+
+                if sel_cid and st.button("🔍 Найти слоты для восстановления", type="primary", key="rs_find_btn"):
+                    with st.spinner("Поиск свободных слотов..."):
+                        slots = find_restore_slots(sel_cid)
+                    st.session_state["rs_slots"] = slots
+                    st.session_state["rs_cid"] = sel_cid
+
+                slots = st.session_state.get("rs_slots", [])
+                rs_cid = st.session_state.get("rs_cid")
+
+                if slots:
+                    st.info(f"Найдено **{len(slots)}** вариантов восстановления")
+                    for i, sl in enumerate(slots, 1):
+                        with st.container(border=True):
+                            sa, sb, sc = st.columns([3, 2, 1])
+                            with sa:
+                                date_str = sl.restore_date if sl.restore_date else "—"
+                                st.write(f"**{date_str}** | {sl.weekday}, {sl.start}–{sl.end}")
+                                st.caption(f"Аудитория: {sl.room_name} (корп.{sl.room_building}, эт.{sl.room_floor}, {sl.room_capacity} мест)")
+                            with sb:
+                                st.metric("Штраф", sl.penalty)
+                                st.caption(f"Пригодность: {sl.match_percent}%")
+                            with sc:
+                                if st.button("🔄 Восстановить", key=f"rs_do_{i}"):
+                                    new_sid = restore_lesson(rs_cid, sl)
+                                    st.session_state["rs_slots"] = None
+                                    st.session_state["rs_cid"] = None
+                                    if new_sid:
+                                        st.session_state["cn_msg"] = f"✅ Занятие восстановлено (schedule_id={new_sid})"
+                                    else:
+                                        st.session_state["cn_msg"] = "⚠️ Не удалось восстановить"
+                                    st.rerun()
+                elif slots is not None and len(slots) == 0:
+                    st.warning("Нет подходящих свободных слотов для восстановления")
+
+    with tab_log:
+        all_cn = get_cancellations()
+        if not all_cn:
+            st.info("Нет записей об отменах")
+        else:
+            log_df = pd.DataFrame([{
+                "Дата изменения": str(r["created_at"])[:19] if r["created_at"] else "—",
+                "Дата отмены": r["cancel_date"],
+                "Предмет": r["lesson_title"],
+                "Тип": r["lesson_type"],
+                "Преподаватель": r["teacher"] or "—",
+                "Группа": r["group_name"],
+                "Причина": r["reason"] or "—",
+                "Статус": "✅ Восстановлено" if r["is_restored"] else "🚫 Отменено",
+                "Было": f'{r["weekday"]} {t_from_iso(r["start"])}–{t_from_iso(r["end"])} ({r["room_name"]})',
+                "Стало": f'{r["restored_weekday"] or "—"} {t_from_iso(r["restored_start"])}–{t_from_iso(r["restored_end"])} ({r["restored_room_name"]})' if r["is_restored"] else "—",
+            } for r in all_cn])
+            st.dataframe(log_df, width="stretch", hide_index=True)
+
+
+# ═══ Страница 4: Расписание ═══
 elif page == "📋 Расписание":
     st.title("📋 Расписание")
     f0, f1 = st.columns([1, 2])
@@ -698,6 +954,17 @@ elif page == "📋 Расписание":
         rms = [r for r in rms if r["building"] == fb]
 
     transfers_date = get_transfers_for_date(sel_date)
+
+    active_cancels = get_active_cancellations_for_date(sel_date)
+    cancel_sids = set(r["schedule_id"] for r in active_cancels)
+    cancel_map = {}
+    for r in active_cancels:
+        cancel_map[(r["room_id"], r["start"][11:16] if len(r["start"]) > 5 else r["start"])] = r
+
+    restored_rows = get_restored_for_date(sel_date)
+    restored_map = {}
+    for r in restored_rows:
+        restored_map[(r["room_id"], r["start"][11:16] if len(r["start"]) > 5 else r["start"])] = r
 
     # Объединяем группы для лекций (несколько schedule_id → один lesson_id)
     merged_transfers = {}
@@ -762,7 +1029,16 @@ elif page == "📋 Расписание":
             bg = "#fff"
             bl = "3px solid transparent"
 
-            if td:
+            restored_entry = restored_map.get((rm["id"], s))
+            if restored_entry:
+                re = restored_entry
+                cell = (
+                    f'<div style="font-weight:bold;color:#5b21b6;">🔄 {re["lesson_title"]}</div>'
+                    f'<div style="font-size:9px;">{re["lesson_type"]}<br>{re["group_name"]}</div>'
+                    f'<div style="font-size:8px;color:#7c3aed;">Восстановлено</div>'
+                )
+                bg, bl = "#ede9fe", "3px solid #7c3aed"
+            elif td:
                 groups_str = ", ".join(sorted(set(td.get("group_names", [td.get("group_name", "")]))))
                 lesson_type = td.get("lesson_type", "")
                 type_label = f"<small>{lesson_type}</small><br>" if lesson_type else ""
@@ -774,7 +1050,17 @@ elif page == "📋 Расписание":
                 )
                 bg, bl = "#d1fae5", "3px solid #059669"
             elif sc:
-                if any(x in tsids for x in sc["sids"]):
+                if any(x in cancel_sids for x in sc["sids"]):
+                    cn_info = cancel_map.get((rm["id"], s))
+                    reason_str = f'<div style="font-size:8px;color:#6b7280;">{cn_info["reason"]}</div>' if cn_info and cn_info["reason"] else ""
+                    cell = (
+                        f'<div style="font-weight:bold;color:#6b7280;text-decoration:line-through;">🚫 {sc["lesson_title"]}</div>'
+                        f'<div style="font-size:9px;color:#9ca3af;">{sc["lesson_type"]} | {sc["gd"]}</div>'
+                        f'{reason_str}'
+                        f'<div style="font-size:8px;color:#9ca3af;">ОТМЕНЕНО</div>'
+                    )
+                    bg, bl = "#f3f4f6", "3px solid #9ca3af"
+                elif any(x in tsids for x in sc["sids"]):
                     mt = None
                     for x in sc["sids"]:
                         if x in tsids:
@@ -820,7 +1106,7 @@ elif page == "📋 Расписание":
                 h += '<td style="border:1px solid #ccc;padding:4px;background:#f9f9f9;color:#ddd;text-align:center;">—</td>'
         h += "</tr>"
     h += "</table>"
-    st.markdown("🟦 Занятие | 🟩 Перенесено сюда | 🟥 Перенесено отсюда | 🟨 Мероприятие")
+    st.markdown("🟦 Занятие | 🟩 Перенесено сюда | 🟥 Перенесено отсюда | 🟨 Мероприятие | 🟪 Восстановлено | ⬜ Отменено")
     st.markdown(h, unsafe_allow_html=True)
 
 
@@ -974,7 +1260,7 @@ elif page == "📊 Статистика":
 # ═══ Страница 5: Управление ═══
 elif page == "⚙️ Управление":
     st.title("⚙️ Управление переносами и бронированиями")
-    t1, t2 = st.tabs(["🔄 Переносы", "📅 Бронирования"])
+    t1, t2, t3 = st.tabs(["🔄 Переносы", "📅 Бронирования", "🚫 Отмены"])
 
     with t1:
         # Загрузка всех переносов
@@ -1162,5 +1448,72 @@ elif page == "⚙️ Управление":
                     with dd:
                         if st.button("🗑", key=f"db{b['id']}"):
                             del_booking(b["id"])
+                            st.success("Удалено")
+                            st.rerun()
+
+    with t3:
+        all_cancels = get_cancellations()
+        if not all_cancels:
+            st.info("Нет отмен")
+        else:
+            st.subheader("Фильтры")
+            f0, f1, f2 = st.columns(3)
+            with f0:
+                cn_dates = sorted(set(r["cancel_date"] for r in all_cancels))
+                sel_cn_dates = st.multiselect("Дата:", cn_dates, key="mg_cn_dates")
+            with f1:
+                cn_reasons = sorted(set(r["reason"] or "" for r in all_cancels))
+                sel_cn_reasons = st.multiselect("Причина:", cn_reasons, key="mg_cn_reasons")
+            with f2:
+                cn_statuses = ["Активные", "Восстановленные", "Все"]
+                sel_cn_status = st.selectbox("Статус:", cn_statuses, key="mg_cn_status")
+
+            filtered = [r for r in all_cancels
+                        if (not sel_cn_dates or r["cancel_date"] in sel_cn_dates)
+                        and (not sel_cn_reasons or (r["reason"] or "") in sel_cn_reasons)
+                        and (sel_cn_status == "Все"
+                             or (sel_cn_status == "Активные" and not r["is_restored"])
+                             or (sel_cn_status == "Восстановленные" and r["is_restored"]))]
+
+            st.divider()
+            col_show, col_del = st.columns([3, 1])
+            with col_show:
+                st.info(f"Показано: **{len(filtered)}** из {len(all_cancels)} отмен")
+            with col_del:
+                if st.button("🗑 Удалить ВСЕ отмены", type="secondary", key="del_all_cancels"):
+                    c = gc()
+                    restored_sids = c.execute("SELECT restored_schedule_id FROM cancellations WHERE is_restored = 1 AND restored_schedule_id IS NOT NULL").fetchall()
+                    for r in restored_sids:
+                        c.execute("DELETE FROM schedule WHERE id = ?", (r[0],))
+                    c.execute("DELETE FROM cancellations")
+                    c.commit()
+                    c.close()
+                    st.success("Удалены все отмены!")
+                    st.rerun()
+
+            for r in filtered:
+                with st.container(border=True):
+                    aa, bb, cc, dd = st.columns([2, 2, 3, 1])
+                    with aa:
+                        st.write(f"**{r['lesson_title']}**")
+                        st.caption(f"{r['group_name']} ({r['lesson_type']})")
+                    with bb:
+                        st.write(f"📆 {r['cancel_date']}")
+                        t_s = t_from_iso(r["start"])
+                        t_e = t_from_iso(r["end"])
+                        st.caption(f"{r['weekday']} {t_s}–{t_e}")
+                    with cc:
+                        if r["is_restored"]:
+                            r_st = t_from_iso(r["restored_start"])
+                            r_et = t_from_iso(r["restored_end"])
+                            st.write(f"🔄 Восстановлено → **{r['restored_room_name'] or '?'}**")
+                            st.caption(f"{r['restored_weekday'] or '?'} {r_st}–{r_et} (корп.{r['restored_building'] or '?'}, эт.{r['restored_floor'] or '?'})")
+                        else:
+                            reason = r["reason"] or "—"
+                            st.write(f"🚫 Активна | Причина: {reason}")
+                            st.caption(f"{r['room_name']} (корп.{r['building']}, эт.{r['floor']})")
+                    with dd:
+                        if st.button("🗑", key=f"dcn{r['id']}"):
+                            delete_cancellation(r["id"])
                             st.success("Удалено")
                             st.rerun()
