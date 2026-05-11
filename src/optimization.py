@@ -157,9 +157,17 @@ def _build_super_scored_rooms(
         unit = super_units[row_idx]
         room = free_rooms[col_idx]
 
-        # Match %: penalty 0 → 100%, penalty >= 100 → 0%
-        # Линейная интерполяция: match = max(0, 100 - penalty)
-        match_pct = max(0.0, 100.0 - penalty)
+        # Match %: относительный — 100% = лучший вариант, 0% = худший
+        row_costs = cost_matrix[row_idx]
+        valid_costs = row_costs[row_costs < 10**9]
+        if len(valid_costs) > 1:
+            min_c, max_c = valid_costs.min(), valid_costs.max()
+            if max_c > min_c:
+                match_pct = round((1 - (penalty - min_c) / (max_c - min_c)) * 100, 1)
+            else:
+                match_pct = 100.0
+        else:
+            match_pct = 100.0
 
         scored = ScoredRoom(
             room_id=room["id"],
