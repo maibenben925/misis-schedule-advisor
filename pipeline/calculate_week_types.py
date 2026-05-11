@@ -48,11 +48,11 @@ def process_schedule(input_file: Path, output_file: Path):
     """
     Читает расписание, добавляет week_type (upper/lower), сохраняет.
     """
-    print(f"📂 Чтение: {input_file}")
+    print(f"Чтение: {input_file}")
     with open(input_file, 'r', encoding='utf-8') as f:
         data = json.load(f)
     
-    print(f"📝 Всего занятий: {len(data)}")
+    print(f"Всего занятий: {len(data)}")
     
     # Статистика
     week_type_counter = Counter()
@@ -76,32 +76,32 @@ def process_schedule(input_file: Path, output_file: Path):
         semester_week_counter[sem_week] += 1
         fixed += 1
     
-    print(f"✅ Обработано: {fixed} занятий")
+    print(f"Обработано: {fixed} занятий")
     
     # Статистика по неделям
-    print(f"\n📊 Распределение по типу недели:")
+    print(f"\nРаспределение по типу недели:")
     for wt, count in sorted(week_type_counter.items()):
         print(f"   {wt}: {count}")
     
-    print(f"\n📅 Распределение по неделям семестра:")
+    print(f"\nРаспределение по неделям семестра:")
     for week_num, count in sorted(semester_week_counter.items()):
         print(f"   Неделя {week_num}: {count} ({week_type_counter.get('upper' if week_num % 2 == 1 else 'lower', 0)})")
     
     # Сохраняем
-    print(f"\n💾 Сохранение: {output_file}")
+    print(f"\nСохранение: {output_file}")
     with open(output_file, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
     
-    print(f"✅ Готово!")
+    print(f"Готово!")
 
 
 def main():
     project_root = Path(__file__).parent.parent
     data_dir = project_root / "data" / "raw"
     
-    print("🎓 Определение верхней/нижней недели")
+    print("Определение верхней/нижней недели")
     print("=" * 60)
-    print(f"📅 Начало семестра: {SEMESTER_START.strftime('%d.%m.%Y')} (Пн)")
+    print(f"Начало семестра: {SEMESTER_START.strftime('%d.%m.%Y')} (Пн)")
     print("=" * 60)
     
     # Обрабатываем разные файлы
@@ -117,14 +117,14 @@ def main():
             output_name = filename.replace('.json', '_with_weeks.json')
             output_file = data_dir / output_name
             print(f"\n{'='*60}")
-            print(f"📋 Файл: {filename}")
+            print(f"Файл: {filename}")
             print(f"{'='*60}")
             process_schedule(input_file, output_file)
         else:
-            print(f"\n⏭ Пропуск: {filename} не найден")
+            print(f"\nПропуск: {filename} не найден")
     
     print(f"\n{'='*60}")
-    print("✅ Все файлы обработаны!")
+    print("Все файлы обработаны!")
 
 
 if __name__ == "__main__":

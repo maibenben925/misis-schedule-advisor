@@ -154,18 +154,18 @@ def clean_teacher_name(teacher: str) -> str:
 
 def fetch_schedule(url: str, name: str, source_type: str) -> List[Dict]:
     """Получает расписание по URL."""
-    print(f"📡 Запрос: {name}")
+    print(f"Запрос: {name}")
     
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         
         lessons = parse_ical_to_lessons(response.content, source_type, name)
-        print(f"   ✅ Получено {len(lessons)} занятий")
+        print(f"   Получено {len(lessons)} занятий")
         
         return lessons
     except requests.exceptions.RequestException as e:
-        print(f"   ❌ Ошибка: {e}")
+        print(f"   Ошибка: {e}")
         return []
 
 
@@ -186,7 +186,7 @@ def save_lessons_json(lessons: List[Dict], filepath: Path):
     filepath.parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(lessons, f, ensure_ascii=False, indent=2)
-    print(f"💾 JSON сохранен: {filepath}")
+    print(f"JSON сохранен: {filepath}")
 
 
 def save_lessons_csv(lessons: List[Dict], filepath: Path):
@@ -203,30 +203,30 @@ def save_lessons_csv(lessons: List[Dict], filepath: Path):
         writer.writeheader()
         writer.writerows(lessons)
     
-    print(f"💾 CSV сохранен: {filepath}")
+    print(f"CSV сохранен: {filepath}")
 
 
 def analyze_schedule(lessons: List[Dict], title: str):
     """Анализирует расписание и выводит статистику"""
     if not lessons:
-        print(f"\n📊 {title}: Нет данных для анализа")
+        print(f"\n{title}: Нет данных для анализа")
         return
     
     print(f"\n{'='*70}")
-    print(f"📊 Анализ: {title}")
+    print(f"Анализ: {title}")
     print(f"{'='*70}")
     
-    print(f"\n📚 Всего занятий: {len(lessons)}")
+    print(f"\nВсего занятий: {len(lessons)}")
     
     unique_courses = set(l['title'] for l in lessons if l['title'])
-    print(f"📖 Уникальных дисциплин: {len(unique_courses)}")
+    print(f"Уникальных дисциплин: {len(unique_courses)}")
     
     by_type = defaultdict(int)
     for l in lessons:
         if l['type']:
             by_type[l['type']] += 1
     
-    print(f"\n📋 По типам занятий:")
+    print(f"\nПо типам занятий:")
     for lesson_type, count in sorted(by_type.items(), key=lambda x: -x[1]):
         print(f"   {lesson_type}: {count}")
     
@@ -236,7 +236,7 @@ def analyze_schedule(lessons: List[Dict], title: str):
     
     weekday_order = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
     
-    print(f"\n📅 По дням недели:")
+    print(f"\nПо дням недели:")
     for day in weekday_order:
         if day in by_weekday:
             print(f"   {day}: {by_weekday[day]}")
@@ -247,7 +247,7 @@ def analyze_schedule(lessons: List[Dict], title: str):
             loc = l['location'] if l['location'] else 'Не указана'
             by_location[loc] += 1
         
-        print(f"\n🏫 По аудиториям (топ-15):")
+        print(f"\nПо аудиториям (топ-15):")
         for loc, count in sorted(by_location.items(), key=lambda x: -x[1])[:15]:
             print(f"   {loc}: {count}")
     
@@ -256,7 +256,7 @@ def analyze_schedule(lessons: List[Dict], title: str):
         if l['teacher']:
             by_teacher[l['teacher']] += 1
     
-    print(f"\n👨‍🏫 Топ преподавателей:")
+    print(f"\nТоп преподавателей:")
     for teacher, count in sorted(by_teacher.items(), key=lambda x: -x[1])[:10]:
         print(f"   {teacher}: {count}")
     
@@ -328,22 +328,22 @@ def main():
     data_dir.mkdir(parents=True, exist_ok=True)
     info_file = project_root / "info.txt"
     
-    print("🎓 Парсинг расписания с schedule.misis.club")
+    print("Парсинг расписания с schedule.misis.club")
     print("="*70)
     
     # === Читаем списки из info.txt ===
     if info_file.exists():
-        print("\n📋 Чтение списков из info.txt...")
+        print("\nЧтение списков из info.txt...")
         all_groups = parse_groups_from_info(info_file)
         all_rooms = parse_rooms_from_info(info_file)
-        print(f"   📚 Групп: {len(all_groups)}")
-        print(f"   🏫 Аудиторий: {len(all_rooms)}")
+        print(f"   Групп: {len(all_groups)}")
+        print(f"   Аудиторий: {len(all_rooms)}")
     else:
-        print(f"❌ Файл {info_file} не найден!")
+        print(f"Файл {info_file} не найден!")
         return
     
     # === ЧАСТЬ 1: Расписание для групп ===
-    print("\n📚 ЧАСТЬ 1: Расписание для групп")
+    print("\nЧАСТЬ 1: Расписание для групп")
     print("-" * 70)
     
     all_group_lessons = []
@@ -356,8 +356,8 @@ def main():
             groups_with_schedule += 1
         all_group_lessons.extend(lessons)
     
-    print(f"\n✅ Групп с расписанием: {groups_with_schedule}/{len(all_groups)}")
-    print(f"📚 Всего занятий: {len(all_group_lessons)}")
+    print(f"\nГрупп с расписанием: {groups_with_schedule}/{len(all_groups)}")
+    print(f"Всего занятий: {len(all_group_lessons)}")
     
     # Сохраняем все групповые занятия
     if all_group_lessons:
@@ -365,7 +365,7 @@ def main():
         save_lessons_csv(all_group_lessons, data_dir / "schedule_all_groups.csv")
     
     # === ЧАСТЬ 2: Расписание для аудиторий ===
-    print("\n🏛 ЧАСТЬ 2: Расписание для аудиторий")
+    print("\nЧАСТЬ 2: Расписание для аудиторий")
     print("-" * 70)
     
     all_room_lessons = []
@@ -377,7 +377,7 @@ def main():
         if l['location'] and l['location'] != 'Онлайн':
             found_rooms_from_groups.add(l['location'])
     
-    print(f"\n🔍 Найдено аудиторий из расписания групп: {len(found_rooms_from_groups)}")
+    print(f"\nНайдено аудиторий из расписания групп: {len(found_rooms_from_groups)}")
     
     for i, room in enumerate(all_rooms, 1):
         print(f"[{i}/{len(all_rooms)}]", end=" ")
@@ -386,8 +386,8 @@ def main():
             rooms_with_schedule += 1
         all_room_lessons.extend(lessons)
     
-    print(f"\n✅ Аудиторий с расписанием: {rooms_with_schedule}/{len(all_rooms)}")
-    print(f"📚 Всего занятий: {len(all_room_lessons)}")
+    print(f"\nАудиторий с расписанием: {rooms_with_schedule}/{len(all_rooms)}")
+    print(f"Всего занятий: {len(all_room_lessons)}")
     
     # Сохраняем все занятия аудиторий
     if all_room_lessons:
@@ -395,7 +395,7 @@ def main():
         save_lessons_csv(all_room_lessons, data_dir / "schedule_all_locations.csv")
     
     # === ЧАСТЬ 3: Итоговая статистика ===
-    print("\n📊 ЧАСТЬ 3: Итоговая статистика")
+    print("\nЧАСТЬ 3: Итоговая статистика")
     print("-" * 70)
     
     all_lessons = all_group_lessons + all_room_lessons
@@ -408,17 +408,17 @@ def main():
     
     # Список всех найденных аудиторий
     all_rooms_found = found_rooms_from_groups | set(all_rooms)
-    print(f"\n🏫 Все найденные аудитории ({len(all_rooms_found)}):")
+    print(f"\nВсе найденные аудитории ({len(all_rooms_found)}):")
     for room in sorted(all_rooms_found):
         print(f"   {room}")
     
     # Итоги
     print(f"\n{'='*70}")
-    print(f"✅ Парсинг завершён!")
-    print(f"📁 Данные сохранены в: {data_dir}")
-    print(f"📚 Групп обработано: {groups_with_schedule}/{len(all_groups)}")
-    print(f"🏫 Аудиторий обработано: {rooms_with_schedule}/{len(all_rooms)}")
-    print(f"📝 Всего занятий: {len(all_lessons)}")
+    print(f"Парсинг завершён!")
+    print(f"Данные сохранены в: {data_dir}")
+    print(f"Групп обработано: {groups_with_schedule}/{len(all_groups)}")
+    print(f"Аудиторий обработано: {rooms_with_schedule}/{len(all_rooms)}")
+    print(f"Всего занятий: {len(all_lessons)}")
     print(f"{'='*70}")
 
 

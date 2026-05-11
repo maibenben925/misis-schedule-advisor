@@ -44,7 +44,7 @@ if not os.path.exists(DB_PATH):
 
 st.set_page_config(
     page_title="Корректировка расписания",
-    page_icon="🏫", layout="wide",
+    page_icon=None, layout="wide",
     initial_sidebar_state="expanded",
 )
 
@@ -389,7 +389,7 @@ def _show_booking_confirm_dialog(data):
     st.divider()
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("✅ Подтвердить", type="primary", use_container_width=True):
+        if st.button("Подтвердить", type="primary", use_container_width=True):
             save_booking(
                 room, p_name, p_org, p_att, p_date,
                 p_s, p_e, need_proj, need_comp,
@@ -402,7 +402,7 @@ def _show_booking_confirm_dialog(data):
             st.session_state["confirm_booking"] = None
             st.rerun()
     with c2:
-        if st.button("❌ Отмена", use_container_width=True):
+        if st.button("Отмена", use_container_width=True):
             st.session_state["confirm_booking"] = None
             st.rerun()
 
@@ -410,13 +410,13 @@ def _show_booking_confirm_dialog(data):
 # ═══ NAV ═══
 page = st.sidebar.radio(
     "Навигация:",
-    ["🔧 Инциденты", "📅 Бронирование", "❌ Отмена занятий", "📋 Расписание", "📊 Статистика", "⚙️ Управление"],
+    ["Инциденты", "Бронирование", "Отмена занятий", "Расписание", "Статистика", "Управление"],
 )
 
 
 # ═══ Страница 1: Инциденты ═══
-if page == "🔧 Инциденты":
-    st.title("🔧 Перенос занятий при закрытии аудиторий")
+if page == "Инциденты":
+    st.title("Перенос занятий при закрытии аудиторий")
     ca, cb = st.columns(2)
     with ca:
         pt = st.radio("Тип:", ["Отдельные аудитории", "Весь корпус"])
@@ -443,7 +443,7 @@ if page == "🔧 Инциденты":
     # Показываем уведомление о сохранении (из session_state)
     if st.session_state.get("saved_msg"):
         st.success(st.session_state["saved_msg"])
-        if st.button("🔄 Новый перенос"):
+        if st.button("Новый перенос"):
             st.session_state["saved_msg"] = None
             st.session_state["ir"] = None
             st.session_state["ir_sd"] = None
@@ -464,7 +464,7 @@ if page == "🔧 Инциденты":
     else:
         st.warning("Нет занятий" if sids_in else "Выберите аудитории")
 
-    if st.button("🚀 Сгенерировать замены", type="primary", disabled=len(aff) == 0):
+    if st.button("Сгенерировать замены", type="primary", disabled=len(aff) == 0):
         with st.spinner("Оптимизация..."):
             st.session_state["ir"] = mass_reallocate([r["id"] for r in aff])
             st.session_state["ir_sd"] = sd
@@ -532,13 +532,13 @@ if page == "🔧 Инциденты":
                     need_comp = any(get_lesson_info(s2)["needs_computers"] for s2 in all_sids_for_this_slot)
 
                     req_parts = []
-                    req_parts.append(f"👥{total_st}")
+                    req_parts.append(f"{total_st} чел.")
                     if n_groups > 1:
-                        req_parts[0] += f"({n_groups}гр)"
+                        req_parts[0] += f" ({n_groups} гр.)"
                     if need_proj:
-                        req_parts.append("📽")
+                        req_parts.append("проектор")
                     if need_comp:
-                        req_parts.append("💻")
+                        req_parts.append("компьютеры")
                     lesson_display[display_key]["Требования"] = " ".join(req_parts)
 
                 lesson_display[display_key]["Группы"].append(info["group_name"])
@@ -561,19 +561,19 @@ if page == "🔧 Инциденты":
                 }
                 rd.append(row)
             st.dataframe(pd.DataFrame(rd), width="stretch", hide_index=True)
-            st.caption(f"«Требования»: 👥=студенты, 📽=проектор, 💻=компьютеры. «Дни» — первая дата и количество затронутых дней.")
+            st.caption(f"«Требования»: кол-во студентов, проектор, компьютеры. «Дни» — первая дата и количество затронутых дней.")
             st.caption(f"Формула штрафа: разные корпуса +100, этаж ×5, лишние места ×1, ненужные компьютеры +10, ненужный проектор +5")
-            if st.button("💾 Сохранить замены", type="primary"):
+            if st.button("Сохранить замены", type="primary"):
                 ir_sd = st.session_state.get("ir_sd", sd)
                 ir_ed = st.session_state.get("ir_ed", ed)
                 count = save_transfers(res.assignments, date_map, ir_sd, ir_ed)
-                st.session_state["saved_msg"] = f"✅ Успешно сохранено **{count}** переносов!"
+                st.session_state["saved_msg"] = f"Успешно сохранено **{count}** переносов!"
                 st.session_state["ir"] = None
                 st.session_state["ir_sd"] = None
                 st.session_state["ir_ed"] = None
                 st.rerun()
         if res.unassigned:
-            st.subheader("❌ Не хватило")
+            st.subheader("Не хватило")
             ua = [
                 {
                     "Предмет": get_lesson_info(s)["lesson_title"],
@@ -585,12 +585,12 @@ if page == "🔧 Инциденты":
 
 
 # ═══ Страница 2: Бронирование ═══
-elif page == "📅 Бронирование":
-    st.title("📅 Бронирование мероприятия")
+elif page == "Бронирование":
+    st.title("Бронирование мероприятия")
 
     if st.session_state.get("evd"):
-        st.success(f"✅ **{st.session_state['evd']}** забронирована на {st.session_state['evt']}!")
-        if st.button("🔄 Забронировать ещё"):
+        st.success(f"**{st.session_state['evd']}** забронирована на {st.session_state['evt']}!")
+        if st.button("Забронировать ещё"):
             st.session_state["evd"] = None
             st.session_state["evt"] = None
             st.session_state["evr"] = None
@@ -625,7 +625,7 @@ elif page == "📅 Бронирование":
     ee = st_end.strftime("%H:%M")
 
     st.divider()
-    if st.button("🔍 Найти", type="primary"):
+    if st.button("Найти", type="primary"):
         if es >= ee:
             st.error("Время конца должно быть больше времени начала")
         else:
@@ -657,9 +657,9 @@ elif page == "📅 Бронирование":
     if res is not None:
         if len(res) == 0:
             reason = "Все найденные аудитории уже заняты в это время!" if len(res_all) > 0 else "Нет подходящих аудиторий"
-            st.warning(f"⚠️ {reason}")
+            st.warning(f"{reason}")
             st.divider()
-            st.subheader("💻 Онлайн-формат")
+            st.subheader("Онлайн-формат")
             st.write("Нет доступных аудиторий? Проведите мероприятие онлайн!")
             col_onl1, col_onl2 = st.columns(2)
             with col_onl1:
@@ -669,9 +669,8 @@ elif page == "📅 Бронирование":
             with col_onl2:
                 st.write(f"**Дата:** {par.get('date', '?')}")
                 st.write(f"**Время:** {par.get('s', '?')}–{par.get('e', '?')}")
-            if st.button("🌐 Забронировать онлайн", type="secondary"):
-                # Создаём виртуальную запись "Онлайн"
-                st.success(f"✅ Мероприятие \"{par.get('n', '?')}\" будет проведено онлайн!")
+            if st.button("Забронировать онлайн", type="secondary"):
+                st.success(f"Мероприятие \"{par.get('n', '?')}\" будет проведено онлайн!")
         elif len(res) > 0:
             st.subheader(f"Результаты: {par.get('date','?')} {par.get('s','?')}–{par.get('e','?')}")
             for i, r in enumerate(res, 1):
@@ -685,10 +684,10 @@ elif page == "📅 Бронирование":
                         st.write(f"Вместимость: {r['capacity']} (избыток {w})")
                         eq = []
                         if r["has_projector"]:
-                            eq.append("📽")
+                            eq.append("Проектор")
                         if r["has_computers"]:
-                            eq.append("💻")
-                        st.write(" ".join(eq) if eq else "—")
+                            eq.append("Компьютеры")
+                        st.write(", ".join(eq) if eq else "—")
                     with c:
                         if st.button("Забронировать", key=f"bk{i}"):
                             st.session_state["confirm_booking"] = {
@@ -702,9 +701,9 @@ elif page == "📅 Бронирование":
 
 
 # ═══ Страница 3: Отмена занятий ═══
-elif page == "❌ Отмена занятий":
-    st.title("❌ Отмена и восстановление занятий")
-    tab_cancel, tab_restore, tab_log = st.tabs(["🚫 Отмена", "🔄 Восстановление", "📜 Журнал"])
+elif page == "Отмена занятий":
+    st.title("Отмена и восстановление занятий")
+    tab_cancel, tab_restore, tab_log = st.tabs(["Отмена", "Восстановление", "Журнал"])
 
     with tab_cancel:
         ct = st.radio("Тип отмены:", ["По преподавателю", "По дисциплине", "Одиночная"], horizontal=True)
@@ -744,7 +743,7 @@ elif page == "❌ Отмена занятий":
 
         st.divider()
 
-        if st.button("🔍 Предпросмотр", type="primary", key="cn_preview_btn"):
+        if st.button("Предпросмотр", type="primary", key="cn_preview_btn"):
             if ct == "По преподавателю":
                 previews = preview_cancel_by_teacher(sel_teacher, cn_sd, cn_ed)
             elif ct == "По дисциплине":
@@ -771,15 +770,15 @@ elif page == "❌ Отмена занятий":
             } for p in previews])
             st.dataframe(cn_df, width="stretch", hide_index=True)
 
-            if st.button("✅ Подтвердить отмену", type="primary", key="cn_apply_btn"):
+            if st.button("Подтвердить отмену", type="primary", key="cn_apply_btn"):
                 count = apply_cancels(previews, cn_reason)
                 st.session_state["cn_previews"] = []
-                st.session_state["cn_msg"] = f"✅ Отменено **{count}** занятий"
+                st.session_state["cn_msg"] = f"Отменено **{count}** занятий"
                 st.rerun()
 
         if st.session_state.get("cn_msg"):
             st.success(st.session_state["cn_msg"])
-            if st.button("🔄 Новая отмена", key="cn_new"):
+            if st.button("Новая отмена", key="cn_new"):
                 st.session_state["cn_msg"] = None
                 st.rerun()
 
@@ -815,7 +814,7 @@ elif page == "❌ Отмена занятий":
 
                 if sel_cids:
                     st.info(f"Выбрано **{len(sel_cids)}** занятий для восстановления")
-                    if st.button("🔍 Предпросмотр восстановления", type="primary", key="rs_mass_preview_btn"):
+                    if st.button("Предпросмотр восстановления", type="primary", key="rs_mass_preview_btn"):
                         with st.spinner("Поиск свободных слотов..."):
                             pv = mass_restore_preview(sel_cids)
                         st.session_state["rs_mass_pv"] = pv
@@ -845,11 +844,11 @@ elif page == "❌ Отмена занятий":
                             st.dataframe(pv_df, width="stretch", hide_index=True)
 
                         if no_slots:
-                            st.warning(f"⚠️ **{len(no_slots)}** занятий — нет свободных слотов:")
+                            st.warning(f"**{len(no_slots)}** занятий — нет свободных слотов:")
                             for p in no_slots:
                                 st.write(f"  • {p['lesson_title']} ({p['group_names']}) — {p['orig_weekday']} {p['orig_start']}")
 
-                        if has_slots and st.button("✅ Подтвердить восстановление", type="primary", key="rs_mass_confirm_btn"):
+                        if has_slots and st.button("Подтвердить восстановление", type="primary", key="rs_mass_confirm_btn"):
                             cids_to_restore = [p["cancel_id"] for p in has_slots]
                             with st.spinner("Восстановление..."):
                                 result = mass_restore(cids_to_restore)
@@ -869,13 +868,13 @@ elif page == "❌ Отмена занятий":
                             "Предмет": d.get("lesson_title", ""),
                             "Тип": d.get("lesson_type", ""),
                             "Группа": d.get("group_name", ""),
-                            "Статус": "✅ Восстановлено" if d["status"] == "restored" else "⚠️ Нет слотов",
+                            "Статус": "Восстановлено" if d["status"] == "restored" else "Нет слотов",
                             "Новый слот": f'{d.get("new_weekday", "")} {d.get("new_start", "")}–{d.get("new_end", "")}' if d["status"] == "restored" else "—",
                             "Новая аудитория": d.get("new_room", "—"),
                             "Штраф": d.get("penalty", "—"),
                         } for d in mr["details"]])
                         st.dataframe(det_df, width="stretch", hide_index=True)
-                    if st.button("🔄 Новое восстановление", key="rs_mass_new"):
+                    if st.button("Новое восстановление", key="rs_mass_new"):
                         st.session_state["rs_mass_result"] = None
                         st.rerun()
 
@@ -883,7 +882,7 @@ elif page == "❌ Отмена занятий":
                 sel_label = st.selectbox("Отменённое занятие:", list(r_opts.keys()), key="rs_sel")
                 sel_cid = r_opts.get(sel_label)
 
-                if sel_cid and st.button("🔍 Найти слоты для восстановления", type="primary", key="rs_find_btn"):
+                if sel_cid and st.button("Найти слоты для восстановления", type="primary", key="rs_find_btn"):
                     with st.spinner("Поиск свободных слотов..."):
                         slots = find_restore_slots(sel_cid)
                     st.session_state["rs_slots"] = slots
@@ -905,14 +904,14 @@ elif page == "❌ Отмена занятий":
                                 st.metric("Штраф", sl.penalty)
                                 st.caption(f"Пригодность: {sl.match_percent}%")
                             with sc:
-                                if st.button("🔄 Восстановить", key=f"rs_do_{i}"):
+                                if st.button("Восстановить", key=f"rs_do_{i}"):
                                     new_sid = restore_lesson(rs_cid, sl)
                                     st.session_state["rs_slots"] = None
                                     st.session_state["rs_cid"] = None
                                     if new_sid:
-                                        st.session_state["cn_msg"] = f"✅ Занятие восстановлено (schedule_id={new_sid})"
+                                        st.session_state["cn_msg"] = f"Занятие восстановлено (schedule_id={new_sid})"
                                     else:
-                                        st.session_state["cn_msg"] = "⚠️ Не удалось восстановить"
+                                        st.session_state["cn_msg"] = "Не удалось восстановить"
                                     st.rerun()
                 elif slots is not None and len(slots) == 0:
                     st.warning("Нет подходящих свободных слотов для восстановления")
@@ -930,7 +929,7 @@ elif page == "❌ Отмена занятий":
                 "Преподаватель": r["teacher"] or "—",
                 "Группа": r["group_name"],
                 "Причина": r["reason"] or "—",
-                "Статус": "✅ Восстановлено" if r["is_restored"] else "🚫 Отменено",
+                "Статус": "Восстановлено" if r["is_restored"] else "Отменено",
                 "Было": f'{r["weekday"]} {t_from_iso(r["start"])}–{t_from_iso(r["end"])} ({r["room_name"]})',
                 "Стало": f'{r["restored_weekday"] or "—"} {t_from_iso(r["restored_start"])}–{t_from_iso(r["restored_end"])} ({r["restored_room_name"]})' if r["is_restored"] else "—",
             } for r in all_cn])
@@ -938,12 +937,12 @@ elif page == "❌ Отмена занятий":
 
 
 # ═══ Страница 4: Расписание ═══
-elif page == "📋 Расписание":
-    st.title("📋 Расписание")
+elif page == "Расписание":
+    st.title("Расписание")
     f0, f1 = st.columns([1, 2])
     with f0:
         sel_date = st.date_input(
-            "📆 Дата:", value=date.today(), min_value=date(2026, 1, 12), key="sched_date"
+            "Дата:", value=date.today(), min_value=date(2026, 1, 12), key="sched_date"
         )
     with f1:
         fb = st.selectbox("Корпус:", ["Все"] + get_buildings())
@@ -1111,8 +1110,8 @@ elif page == "📋 Расписание":
 
 
 # ═══ Страница 4: Статистика ═══
-elif page == "📊 Статистика":
-    st.title("📊 Статистика аудиторного фонда")
+elif page == "Статистика":
+    st.title("Статистика аудиторного фонда")
 
     pc = pc_utilization()
     cd = capacity_demand()
@@ -1258,9 +1257,9 @@ elif page == "📊 Статистика":
 
 
 # ═══ Страница 5: Управление ═══
-elif page == "⚙️ Управление":
-    st.title("⚙️ Управление переносами и бронированиями")
-    t1, t2, t3 = st.tabs(["🔄 Переносы", "📅 Бронирования", "🚫 Отмены"])
+elif page == "Управление":
+    st.title("Управление переносами и бронированиями")
+    t1, t2, t3 = st.tabs(["Переносы", "Бронирования", "Отмены"])
 
     with t1:
         # Загрузка всех переносов
@@ -1338,7 +1337,7 @@ elif page == "⚙️ Управление":
             with col_show:
                 st.info(f"Показано: **{len(trs)}** переносов ({shown_records} записей в БД)")
             with col_del:
-                if st.button("🗑 Удалить ВСЕ переносы", type="secondary", key="del_all_transfers"):
+                if st.button("Удалить ВСЕ переносы", type="secondary", key="del_all_transfers"):
                     c = gc()
                     c.execute("DELETE FROM transfers")
                     c.commit()
@@ -1347,7 +1346,7 @@ elif page == "⚙️ Управление":
                     st.rerun()
 
                 if trs and len(trs) < len(trs_list):
-                    if st.button("🗑 Удалить отфильтрованные", type="secondary", key="del_filtered_transfers"):
+                    if st.button("Удалить отфильтрованные", type="secondary", key="del_filtered_transfers"):
                         ids_to_del = []
                         for x in trs:
                             ids_to_del.extend(x["ids"])
@@ -1369,13 +1368,13 @@ elif page == "⚙️ Управление":
                     with bb:
                         bdate = item["booking_date"]
                         slabel = slot_label(item["start"], item["end"])
-                        st.write(f"📆 {bdate}")
+                        st.write(f"{bdate}")
                         st.caption(slabel)
                     with cc:
                         st.write(f"{item['old_room']} → **{item['new_room']}**")
                         st.caption(f"Записей в БД: {len(item['ids'])}")
                     with dd:
-                        if st.button("🗑", key=f"dt{item['ids'][0]}"):
+                        if st.button("X", key=f"dt{item['ids'][0]}"):
                             for tid in item["ids"]:
                                 del_transfer(tid)
                             st.success(f"Удалено {len(item['ids'])} записей")
@@ -1413,7 +1412,7 @@ elif page == "⚙️ Управление":
             with col_show:
                 st.info(f"Показано: **{len(bks)}** из {len(bks_all)} бронирований")
             with col_del:
-                if st.button("🗑 Удалить ВСЕ бронирования", type="secondary", key="del_all_bookings"):
+                if st.button("Удалить ВСЕ бронирования", type="secondary", key="del_all_bookings"):
                     c = gc()
                     c.execute("DELETE FROM event_bookings")
                     c.commit()
@@ -1421,7 +1420,7 @@ elif page == "⚙️ Управление":
                     st.success(f"Удалено все {len(bks_all)} бронирований!")
                     st.rerun()
                 if bks and len(bks) < len(bks_all):
-                    if st.button("🗑 Удалить отфильтрованные", type="secondary", key="del_filtered_bookings"):
+                    if st.button("Удалить отфильтрованные", type="secondary", key="del_filtered_bookings"):
                         ids = [b["id"] for b in bks]
                         c = gc()
                         c.execute(f"DELETE FROM event_bookings WHERE id IN ({','.join('?' for _ in ids)})", ids)
@@ -1441,12 +1440,12 @@ elif page == "⚙️ Управление":
                         b_s = t_from_iso(b["start"])
                         b_e = t_from_iso(b["end"])
                         slabel = slot_label(b_s, b_e)
-                        st.write(f"📆 {bdate}")
+                        st.write(f"{bdate}")
                         st.caption(slabel)
                     with cc:
                         st.write(f"{b['room_name']} (корп.{b['building']}, эт.{b['floor']})")
                     with dd:
-                        if st.button("🗑", key=f"db{b['id']}"):
+                        if st.button("X", key=f"db{b['id']}"):
                             del_booking(b["id"])
                             st.success("Удалено")
                             st.rerun()
@@ -1480,7 +1479,7 @@ elif page == "⚙️ Управление":
             with col_show:
                 st.info(f"Показано: **{len(filtered)}** из {len(all_cancels)} отмен")
             with col_del:
-                if st.button("🗑 Удалить ВСЕ отмены", type="secondary", key="del_all_cancels"):
+                if st.button("Удалить ВСЕ отмены", type="secondary", key="del_all_cancels"):
                     c = gc()
                     restored_sids = c.execute("SELECT restored_schedule_id FROM cancellations WHERE is_restored = 1 AND restored_schedule_id IS NOT NULL").fetchall()
                     for r in restored_sids:
@@ -1498,7 +1497,7 @@ elif page == "⚙️ Управление":
                         st.write(f"**{r['lesson_title']}**")
                         st.caption(f"{r['group_name']} ({r['lesson_type']})")
                     with bb:
-                        st.write(f"📆 {r['cancel_date']}")
+                        st.write(f"{r['cancel_date']}")
                         t_s = t_from_iso(r["start"])
                         t_e = t_from_iso(r["end"])
                         st.caption(f"{r['weekday']} {t_s}–{t_e}")
@@ -1506,14 +1505,14 @@ elif page == "⚙️ Управление":
                         if r["is_restored"]:
                             r_st = t_from_iso(r["restored_start"])
                             r_et = t_from_iso(r["restored_end"])
-                            st.write(f"🔄 Восстановлено → **{r['restored_room_name'] or '?'}**")
+                            st.write(f"Восстановлено → **{r['restored_room_name'] or '?'}**")
                             st.caption(f"{r['restored_weekday'] or '?'} {r_st}–{r_et} (корп.{r['restored_building'] or '?'}, эт.{r['restored_floor'] or '?'})")
                         else:
                             reason = r["reason"] or "—"
-                            st.write(f"🚫 Активна | Причина: {reason}")
+                            st.write(f"Активна | Причина: {reason}")
                             st.caption(f"{r['room_name']} (корп.{r['building']}, эт.{r['floor']})")
                     with dd:
-                        if st.button("🗑", key=f"dcn{r['id']}"):
+                        if st.button("X", key=f"dcn{r['id']}"):
                             delete_cancellation(r["id"])
                             st.success("Удалено")
                             st.rerun()

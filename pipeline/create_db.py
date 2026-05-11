@@ -44,7 +44,7 @@ def create_tables(cursor: sqlite3.Cursor):
 
 def main():
     if DB_PATH.exists():
-        print(f"⚠️ Файл {DB_PATH} уже существует. Удаляю старый.")
+        print(f"Файл {DB_PATH} уже существует. Удаляю старый.")
         DB_PATH.unlink()
 
     with open(DATA_DIR / "schedule_clean.json", "r", encoding="utf-8") as f:
@@ -120,7 +120,7 @@ def main():
 
     conn.commit()
 
-    print(f"\n✅ БД создана: {DB_PATH}")
+    print(f"\nБД создана: {DB_PATH}")
     print(f"   Занесено: {inserted} записей в schedule")
 
     cursor.execute("SELECT COUNT(*) FROM groups")

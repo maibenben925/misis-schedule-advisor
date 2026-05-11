@@ -468,7 +468,7 @@ print(f"ИТОГ: {PASS} PASSED, {FAIL} FAILED")
 if FAIL:
     print(f"⚠ Есть {FAIL} проблем — см. FAIL выше")
 else:
-    print("✅ Все проверки пройдены!")
+    print("Все проверки пройдены!")
     print()
     print("Известные нерешённые проблемы:")
     print("  1. to_iso() в app.py — баг с датой для Вт-Сб (бронирование)")
