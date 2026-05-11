@@ -452,17 +452,6 @@ if page == "Инциденты":
         st.divider()
 
     aff = get_affected(sids_in, sd, ed) if sids_in else []
-    st.subheader("Предпросмотр")
-    if aff:
-        st.info(f"Затронуто: **{len(aff)}**")
-        sc = {}
-        for r in aff:
-            k = f"{r['booking_date']} {r['start'][11:16]}-{r['end'][11:16]}"
-            sc[k] = sc.get(k, 0) + 1
-        for k, v in sorted(sc.items()):
-            st.write(f"  • {k}: **{v}**")
-    else:
-        st.warning("Нет занятий" if sids_in else "Выберите аудитории")
 
     if st.button("Сгенерировать замены", type="primary", disabled=len(aff) == 0):
         with st.spinner("Оптимизация..."):
