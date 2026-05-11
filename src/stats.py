@@ -2,10 +2,8 @@
 Модуль расчёта статистики аудиторного фонда.
 
 Метрики, которые помогают принимать решения:
-- использование компьютерных классов по назначению
-- дефицит вместимости (с учётом потоковых лекций)
-- аудитории-получатели переносов
-- общая сводка по фонду
+- общая сводка по фонду (с переносами, бронированиями, отменами)
+- наиболее / наименее загруженные аудитории
 """
 
 import sqlite3
@@ -282,7 +280,7 @@ def fund_summary() -> dict:
 
 
 def fund_summary_with_transfers() -> dict:
-    """Общая сводка по аудиторному фонду (с переносами)."""
+    """Общая сводка по аудиторному фонду (с переносами, бронированиями, отменами)."""
     conn = _connect()
 
     n_rooms = conn.execute("""
@@ -323,6 +321,13 @@ def fund_summary_with_transfers() -> dict:
     transfer_dates = conn.execute("SELECT COUNT(DISTINCT booking_date) as cnt FROM transfers").fetchone()["cnt"]
     transfer_rooms = conn.execute("SELECT COUNT(DISTINCT new_room_id) as cnt FROM transfers").fetchone()["cnt"]
 
+    try:
+        total_cancellations = conn.execute("SELECT COUNT(*) as cnt FROM cancellations WHERE is_restored = 0").fetchone()["cnt"]
+        cancel_dates = conn.execute("SELECT COUNT(DISTINCT cancel_date) as cnt FROM cancellations WHERE is_restored = 0").fetchone()["cnt"]
+    except sqlite3.OperationalError:
+        total_cancellations = 0
+        cancel_dates = 0
+
     conn.close()
 
     return {
@@ -336,4 +341,57 @@ def fund_summary_with_transfers() -> dict:
         "transfers": total_transfers,
         "transfer_dates": transfer_dates,
         "transfer_rooms": transfer_rooms,
+        "cancellations": total_cancellations,
+        "cancel_dates": cancel_dates,
+    }
+
+
+def room_load_stats(n: int = 10) -> dict:
+    """Наиболее и наименее загруженные аудитории.
+
+    Загрузка = занятые слоты / 84 возможных (6 дней × 7 пар × 2 недели).
+    """
+    conn = _connect()
+    SLOTS_PER_ROOM = 84
+
+    rows = conn.execute("""
+        SELECT r.id, r.name, r.building, r.capacity, r.has_computers,
+               COUNT(DISTINCT s.weekday || s.start || s.week_type) as occupied_slots
+        FROM rooms r
+        LEFT JOIN schedule s ON s.room_id = r.id
+        WHERE r.building NOT IN (?,?,?)
+        GROUP BY r.id
+    """, EXCLUDED_BUILDINGS).fetchall()
+
+    room_list = []
+    for r in rows:
+        occupied = r["occupied_slots"]
+        load_pct = round(occupied / SLOTS_PER_ROOM * 100, 1) if SLOTS_PER_ROOM > 0 else 0
+        room_list.append({
+            "name": r["name"],
+            "building": r["building"],
+            "capacity": r["capacity"],
+            "has_computers": bool(r["has_computers"]),
+            "occupied_slots": occupied,
+            "total_slots": SLOTS_PER_ROOM,
+            "load_pct": load_pct,
+        })
+
+    room_list.sort(key=lambda x: x["load_pct"], reverse=True)
+
+    most = room_list[:n]
+    least_candidates = [r for r in room_list if r["occupied_slots"] > 0]
+    least_candidates.sort(key=lambda x: x["load_pct"])
+    least = least_candidates[:n]
+
+    avg_load = round(sum(r["load_pct"] for r in room_list) / len(room_list), 1) if room_list else 0
+
+    conn.close()
+
+    return {
+        "most_loaded": most,
+        "least_loaded": least,
+        "avg_load": avg_load,
+        "total_rooms": len(room_list),
+        "empty_rooms": sum(1 for r in room_list if r["occupied_slots"] == 0),
     }
