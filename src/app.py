@@ -600,7 +600,8 @@ elif page == "Бронирование":
         sel_date = st.date_input("Дата:", value=today, min_value=date(2026, 1, 12), key="b_date")
         wd = d2wd(sel_date)
         wt = d2wt(sel_date)
-        st.caption(f"{wd} ({wt})")
+        wt_label = "верхняя" if wt == "upper" else "нижняя"
+        st.caption(f"{wd} ({wt_label})")
         ts, te = st.columns(2)
         with ts:
             st_start = st.time_input(
@@ -990,7 +991,8 @@ elif page == "Расписание":
     for r in sg:
         sm[(r["room_id"], r["start"])] = r
 
-    st.subheader(f"{sel_date.strftime('%d.%m.%Y')} — {sel_wd} ({sel_wt})")
+    sel_wt_label = "верхняя" if sel_wt == "upper" else "нижняя"
+    st.subheader(f"{sel_date.strftime('%d.%m.%Y')} — {sel_wd} ({sel_wt_label})")
 
     h = '<table style="border-collapse:collapse;width:100%;font-size:12px;">'
     h += '<tr><th style="border:1px solid #ccc;padding:4px;background:#f0f0f0;position:sticky;left:0;z-index:2;">Аудитория</th>'
