@@ -465,8 +465,8 @@ if page == "Инциденты":
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Перенесено", len(res.assignments))
         m2.metric("Не хватило", len(res.unassigned))
-        m3.metric("Штраф", f"{res.avg_penalty:.1f}")
-        m4.metric("Match", f"{res.avg_match_percent:.1f}%")
+        m3.metric("Средний штраф", f"{res.avg_penalty:.1f}")
+        m4.metric("Средний Match", f"{res.avg_match_percent:.1f}%")
         if res.assignments:
             # Считаем сколько дат для каждого (weekday, week_type)
             ir_sd = st.session_state.get("ir_sd", sd)
