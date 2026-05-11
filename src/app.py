@@ -1084,7 +1084,7 @@ elif page == "Расписание":
                 if bk_s < sl_e and bk_e > sl_s:
                     cell += (
                         f'<div style="font-size:10px;font-weight:bold;color:#92400e;margin-top:2px;">📌 {bkk["event_name"]}</div>'
-                        f'<div style="font-size:9px;">{bkk["organizer"]} | {bkk["attendees_count"]}ч.</div>'
+                        f'<div style="font-size:9px;">{bkk["organizer"]} | {bkk["attendees_count"]} чел.</div>'
                         f'<div style="font-size:8px;color:#6b7280;">{bkk["st"]}–{bkk["et"]}</div>'
                     )
                     if "fee2e2" not in cell and "d1fae5" not in cell:
