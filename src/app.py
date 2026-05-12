@@ -699,80 +699,116 @@ elif page == "Отмена занятий":
 
     with tab_cancel:
         ct = st.radio("Тип отмены:", ["По преподавателю", "По дисциплине", "Одиночная"], horizontal=True)
-        ca, cb = st.columns(2)
-        with ca:
-            if ct == "По преподавателю":
-                teachers = get_all_teachers()
-                sel_teacher = st.selectbox("Преподаватель:", teachers, key="cn_teacher")
-            elif ct == "По дисциплине":
-                disciplines = get_all_disciplines()
-                sel_disc = st.selectbox("Дисциплина:", disciplines, key="cn_disc")
-            else:
-                c = gc()
-                all_sched = c.execute("""
-                    SELECT s.id, l.title || ' (' || l.lesson_type || ') — ' ||
-                           g.name || ' — ' || s.weekday || ' ' ||
-                           substr(s.start,12,5) AS label
-                    FROM schedule s
-                    JOIN lessons l ON s.lesson_id = l.id
-                    JOIN groups g ON s.group_id = g.id
-                    ORDER BY l.title, s.weekday
-                """).fetchall()
-                c.close()
-                sched_opts = {r["label"]: r["id"] for r in all_sched}
-                sel_sched_label = st.selectbox("Занятие:", list(sched_opts.keys()), key="cn_single")
-                sel_sched_id = sched_opts.get(sel_sched_label)
-        with cb:
+
+        if ct == "Одиночная":
             today = date.today()
-            d1, d2 = st.columns(2)
-            with d1:
-                cn_sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12), key="cn_sd")
-            with d2:
-                cn_ed = st.date_input("Конец:", value=cn_sd + timedelta(days=13), min_value=cn_sd, key="cn_ed")
-            if ct == "Одиночная":
-                cn_single_date = st.date_input("Дата отмены:", value=today, min_value=date(2026, 1, 12), key="cn_single_date")
+            cn_single_date = st.date_input("Дата отмены:", value=today, min_value=date(2026, 1, 12), key="cn_single_date")
+
+            _WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+            _BASE_MONDAY = date(2026, 1, 12)
+            wd = _WEEKDAYS[cn_single_date.weekday()]
+            diff = (cn_single_date - _BASE_MONDAY).days
+            wt = "upper" if (diff // 7) % 2 == 0 else "lower"
+
+            c = gc()
+            rows = c.execute("""
+                SELECT s.id, l.title || ' (' || l.lesson_type || ') — ' ||
+                       g.name || ' — ' || substr(s.start,12,5) || '–' || substr(s.end,12,5) AS label
+                FROM schedule s
+                JOIN lessons l ON s.lesson_id = l.id
+                JOIN groups g ON s.group_id = g.id
+                WHERE s.weekday = ? AND s.week_type = ?
+                ORDER BY s.start, l.title
+            """, (wd, wt)).fetchall()
+            c.close()
+
+            sched_opts = {r["label"]: r["id"] for r in rows}
+            sel_sched_label = st.selectbox("Занятие:", list(sched_opts.keys()), key="cn_single")
+            sel_sched_id = sched_opts.get(sel_sched_label)
+
             cn_reason = st.text_input("Причина:", value="Болезнь преподавателя", key="cn_reason")
 
-        st.divider()
+            if sel_sched_id:
+                st.divider()
+                previews = preview_cancel_single(sel_sched_id, cn_single_date)
+                if previews:
+                    st.info("Будет отменено: **1** занятие")
+                    cn_df = pd.DataFrame([{
+                        "Дата": p.cancel_date,
+                        "Предмет": p.lesson_title,
+                        "Тип": p.lesson_type,
+                        "Преподаватель": p.teacher,
+                        "Группа": p.group_name,
+                        "Аудитория": p.room_name,
+                        "День": p.weekday,
+                        "Время": f"{p.start}–{p.end}",
+                    } for p in previews])
+                    st.dataframe(cn_df, width="stretch", hide_index=True)
 
-        if st.button("Предпросмотр", type="primary", key="cn_preview_btn"):
-            if ct == "По преподавателю":
-                previews = preview_cancel_by_teacher(sel_teacher, cn_sd, cn_ed)
-            elif ct == "По дисциплине":
-                previews = preview_cancel_by_discipline(sel_disc, cn_sd, cn_ed)
-            else:
-                if sel_sched_id:
-                    previews = preview_cancel_single(sel_sched_id, cn_single_date)
+                    if st.button("Подтвердить отмену", type="primary", key="cn_apply_btn_single"):
+                        count = apply_cancels(previews, cn_reason)
+                        st.session_state["cn_single_msg"] = f"Отменено **{count}** занятий"
+                        st.rerun()
+
+            if st.session_state.get("cn_single_msg"):
+                st.success(st.session_state["cn_single_msg"])
+                if st.button("Новая отмена", key="cn_new_single"):
+                    st.session_state["cn_single_msg"] = None
+                    st.rerun()
+
+        else:
+            ca, cb = st.columns(2)
+            with ca:
+                if ct == "По преподавателю":
+                    teachers = get_all_teachers()
+                    sel_teacher = st.selectbox("Преподаватель:", teachers, key="cn_teacher")
+                elif ct == "По дисциплине":
+                    disciplines = get_all_disciplines()
+                    sel_disc = st.selectbox("Дисциплина:", disciplines, key="cn_disc")
+            with cb:
+                today = date.today()
+                d1, d2 = st.columns(2)
+                with d1:
+                    cn_sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12), key="cn_sd")
+                with d2:
+                    cn_ed = st.date_input("Конец:", value=cn_sd + timedelta(days=13), min_value=cn_sd, key="cn_ed")
+                cn_reason = st.text_input("Причина:", value="Болезнь преподавателя", key="cn_reason")
+
+            st.divider()
+
+            if st.button("Предпросмотр", type="primary", key="cn_preview_btn"):
+                if ct == "По преподавателю":
+                    previews = preview_cancel_by_teacher(sel_teacher, cn_sd, cn_ed)
                 else:
-                    previews = []
-            st.session_state["cn_previews"] = previews
+                    previews = preview_cancel_by_discipline(sel_disc, cn_sd, cn_ed)
+                st.session_state["cn_previews"] = previews
 
-        previews = st.session_state.get("cn_previews", [])
-        if previews:
-            st.info(f"Будет отменено: **{len(previews)}** занятий")
-            cn_df = pd.DataFrame([{
-                "Дата": p.cancel_date,
-                "Предмет": p.lesson_title,
-                "Тип": p.lesson_type,
-                "Преподаватель": p.teacher,
-                "Группа": p.group_name,
-                "Аудитория": p.room_name,
-                "День": p.weekday,
-                "Время": f"{p.start}–{p.end}",
-            } for p in previews])
-            st.dataframe(cn_df, width="stretch", hide_index=True)
+            previews = st.session_state.get("cn_previews", [])
+            if previews:
+                st.info(f"Будет отменено: **{len(previews)}** занятий")
+                cn_df = pd.DataFrame([{
+                    "Дата": p.cancel_date,
+                    "Предмет": p.lesson_title,
+                    "Тип": p.lesson_type,
+                    "Преподаватель": p.teacher,
+                    "Группа": p.group_name,
+                    "Аудитория": p.room_name,
+                    "День": p.weekday,
+                    "Время": f"{p.start}–{p.end}",
+                } for p in previews])
+                st.dataframe(cn_df, width="stretch", hide_index=True)
 
-            if st.button("Подтвердить отмену", type="primary", key="cn_apply_btn"):
-                count = apply_cancels(previews, cn_reason)
-                st.session_state["cn_previews"] = []
-                st.session_state["cn_msg"] = f"Отменено **{count}** занятий"
-                st.rerun()
+                if st.button("Подтвердить отмену", type="primary", key="cn_apply_btn"):
+                    count = apply_cancels(previews, cn_reason)
+                    st.session_state["cn_previews"] = []
+                    st.session_state["cn_msg"] = f"Отменено **{count}** занятий"
+                    st.rerun()
 
-        if st.session_state.get("cn_msg"):
-            st.success(st.session_state["cn_msg"])
-            if st.button("Новая отмена", key="cn_new"):
-                st.session_state["cn_msg"] = None
-                st.rerun()
+            if st.session_state.get("cn_msg"):
+                st.success(st.session_state["cn_msg"])
+                if st.button("Новая отмена", key="cn_new"):
+                    st.session_state["cn_msg"] = None
+                    st.rerun()
 
     with tab_restore:
         c = gc()

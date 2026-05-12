@@ -205,7 +205,7 @@ def _to_previews(rows: list[dict]) -> list[CancelPreview]:
             teacher=r["teacher"] or "",
             group_name=r["group_name"],
             room_name=r["room_name"],
-            weekday=r["weekday"],
+            weekday=_d2wd(date.fromisoformat(r["cancel_date"])),
             start=r["start"][11:16] if len(r["start"]) > 5 else r["start"],
             end=r["end"][11:16] if len(r["end"]) > 5 else r["end"],
             cancel_date=r["cancel_date"],
@@ -227,22 +227,7 @@ def preview_cancel_single(schedule_id: int, cancel_date: date) -> list[CancelPre
     row = _find_single_lesson(schedule_id, cancel_date)
     if row is None:
         return []
-    conn = _connect()
-    lesson_id = row["lesson_id"]
-    same_slot = conn.execute("""
-        SELECT s.id AS schedule_id, s.weekday, s.start, s.end, s.week_type,
-               l.id AS lesson_id, l.title, l.lesson_type, l.teacher,
-               g.name AS group_name, g.students_count,
-               r.name AS room_name, r.building AS room_building, r.floor AS room_floor,
-               r.capacity AS room_capacity
-        FROM schedule s
-        JOIN lessons l ON s.lesson_id = l.id
-        JOIN groups g ON s.group_id = g.id
-        JOIN rooms r ON s.room_id = r.id
-        WHERE l.id = ? AND s.weekday = ? AND s.start = ? AND s.week_type = ?
-    """, (lesson_id, row["weekday"], row["start"], row["week_type"])).fetchall()
-    conn.close()
-    return _to_previews([{**dict(r), "cancel_date": str(cancel_date)} for r in same_slot])
+    return _to_previews([row])
 
 
 def apply_cancels(previews: list[CancelPreview], reason: str) -> int:
