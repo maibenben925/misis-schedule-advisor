@@ -306,6 +306,7 @@ def generate_excel(
             cell.border = thin_border
             cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
+            max_lines = 1
             for col_idx, wd in enumerate(WEEKDAYS, start=2):
                 cell_entries: list[CellEntry] = grid.get(sheet_name, {}).get(wd, {}).get(row_idx - 2, [])
 
@@ -322,11 +323,18 @@ def generate_excel(
                     c.font = font
                     c.alignment = wrap_align
 
-        ws.column_dimensions["A"].width = 18
+                    col_chars = 30
+                    text_lines = 0
+                    for line in cell_text.split("\n"):
+                        line_len = sum(2 if ord(ch) > 127 else 1 for ch in line)
+                        text_lines += max(1, -(-line_len // col_chars))
+                    max_lines = max(max_lines, text_lines)
+
+            ws.row_dimensions[row_idx].height = max(15 * max_lines, 30)
+
+        ws.column_dimensions["A"].width = 14
         for col_idx in range(2, 9):
-            ws.column_dimensions[get_column_letter(col_idx)].width = 28
-        for row_idx in range(2, 9):
-            ws.row_dimensions[row_idx].height = 60
+            ws.column_dimensions[get_column_letter(col_idx)].width = 30
 
     buf = io.BytesIO()
     wb.save(buf)
