@@ -17,6 +17,7 @@ from src.cancellation import (
     apply_cancels,
     get_cancellations,
     get_active_cancellations_for_date,
+    get_restored_cancellations_for_date,
     get_restored_for_date,
     find_restore_slots,
     restore_lesson,
@@ -28,6 +29,7 @@ from src.cancellation import (
     CancelPreview,
     RestoreSlot,
 )
+from src.export import get_all_groups, get_schedule_for_group, get_schedule_for_teacher, generate_excel
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
 
@@ -410,7 +412,7 @@ def _show_booking_confirm_dialog(data):
 # ═══ NAV ═══
 page = st.sidebar.radio(
     "Навигация:",
-    ["Инциденты", "Бронирование", "Отмена занятий", "Расписание", "Статистика", "Управление"],
+    ["Инциденты", "Бронирование", "Отмена занятий", "Расписание", "Статистика", "Управление", "Экспорт"],
 )
 
 
@@ -945,15 +947,28 @@ elif page == "Расписание":
     transfers_date = get_transfers_for_date(sel_date)
 
     active_cancels = get_active_cancellations_for_date(sel_date)
+    restored_cancels = get_restored_cancellations_for_date(sel_date)
     cancel_sids = set(r["schedule_id"] for r in active_cancels)
+    restored_cancel_sids = set(r["schedule_id"] for r in restored_cancels)
     cancel_map = {}
     for r in active_cancels:
         cancel_map[(r["room_id"], r["start"][11:16] if len(r["start"]) > 5 else r["start"])] = r
+    restored_cancel_map = {}
+    for r in restored_cancels:
+        k = (r["room_id"], r["start"][11:16] if len(r["start"]) > 5 else r["start"])
+        if k not in restored_cancel_map:
+            restored_cancel_map[k] = {"row": r, "group_names": [r["group_name"]]}
+        else:
+            restored_cancel_map[k]["group_names"].append(r["group_name"])
 
     restored_rows = get_restored_for_date(sel_date)
     restored_map = {}
     for r in restored_rows:
-        restored_map[(r["room_id"], r["start"][11:16] if len(r["start"]) > 5 else r["start"])] = r
+        k = (r["room_id"], r["start"][11:16] if len(r["start"]) > 5 else r["start"])
+        if k not in restored_map:
+            restored_map[k] = {"row": r, "group_names": [r["group_name"]]}
+        else:
+            restored_map[k]["group_names"].append(r["group_name"])
 
     # Объединяем группы для лекций (несколько schedule_id → один lesson_id)
     merged_transfers = {}
@@ -982,10 +997,15 @@ elif page == "Расписание":
         tsids.update(mt["schedule_ids"])
 
     abk = {}
-    for rm in rms:
-        bks = get_bookings_for_date(rm["id"], sel_date)
-        if bks:
-            abk[rm["id"]] = bks
+    c = gc()
+    bk_rows = c.execute("""
+        SELECT eb.id as bid,eb.event_name,eb.organizer,eb.attendees_count,eb.booking_date,
+               eb.room_id,substr(eb.start,12,5) as st,substr(eb.end,12,5) as et
+        FROM event_bookings eb WHERE eb.booking_date=?
+    """, (str(sel_date),)).fetchall()
+    c.close()
+    for bk in bk_rows:
+        abk.setdefault(bk["room_id"], []).append(bk)
 
     sm = {}
     for r in sg:
@@ -1021,10 +1041,11 @@ elif page == "Расписание":
 
             restored_entry = restored_map.get((rm["id"], s))
             if restored_entry:
-                re = restored_entry
+                re = restored_entry["row"]
+                gn = ", ".join(sorted(set(restored_entry["group_names"])))
                 cell = (
                     f'<div style="font-weight:bold;color:#5b21b6;">🔄 {re["lesson_title"]}</div>'
-                    f'<div style="font-size:9px;">{re["lesson_type"]}<br>{re["group_name"]}</div>'
+                    f'<div style="font-size:9px;">{re["lesson_type"]}<br>{gn}</div>'
                     f'<div style="font-size:8px;color:#7c3aed;">Восстановлено</div>'
                 )
                 bg, bl = "#ede9fe", "3px solid #7c3aed"
@@ -1047,6 +1068,20 @@ elif page == "Расписание":
                         f'<div style="font-weight:bold;color:#6b7280;text-decoration:line-through;">🚫 {sc["lesson_title"]}</div>'
                         f'<div style="font-size:9px;color:#9ca3af;">{sc["lesson_type"]} | {sc["gd"]}</div>'
                         f'{reason_str}'
+                        f'<div style="font-size:8px;color:#9ca3af;">ОТМЕНЕНО</div>'
+                    )
+                    bg, bl = "#f3f4f6", "3px solid #9ca3af"
+                elif any(x in restored_cancel_sids for x in sc["sids"]):
+                    rc_info = restored_cancel_map.get((rm["id"], s))
+                    rc = rc_info["row"] if rc_info else None
+                    rc_gn = ", ".join(sorted(set(rc_info["group_names"]))) if rc_info else sc["gd"]
+                    restore_str = ""
+                    if rc and rc["restored_room_name"]:
+                        restore_str = f'<div style="font-size:8px;color:#5b21b6;">→ Восстановлено: {rc["restored_weekday"]} {rc["restored_start"]}–{rc["restored_end"]} ({rc["restored_room_name"]})</div>'
+                    cell = (
+                        f'<div style="font-weight:bold;color:#6b7280;text-decoration:line-through;">🚫 {sc["lesson_title"]}</div>'
+                        f'<div style="font-size:9px;color:#9ca3af;">{sc["lesson_type"]} | {rc_gn}</div>'
+                        f'{restore_str}'
                         f'<div style="font-size:8px;color:#9ca3af;">ОТМЕНЕНО</div>'
                     )
                     bg, bl = "#f3f4f6", "3px solid #9ca3af"
@@ -1450,3 +1485,33 @@ elif page == "Управление":
                             delete_cancellation(r["id"])
                             st.success("Удалено")
                             st.rerun()
+
+
+# ═══ Страница 7: Экспорт ═══
+elif page == "Экспорт":
+    st.title("Экспорт расписания")
+
+    et = st.radio("Экспорт для:", ["Группы", "Преподавателя"], horizontal=True)
+
+    if et == "Группы":
+        groups = get_all_groups()
+        sel = st.selectbox("Выберите группу:", groups, key="exp_group")
+        if st.button("Сформировать Excel", type="primary", use_container_width=True):
+            grid = get_schedule_for_group(sel)
+            st.session_state["exp_data"] = generate_excel(grid, title=sel)
+            st.session_state["exp_fname"] = f"schedule_{sel}.xlsx"
+    else:
+        teachers = get_all_teachers()
+        sel = st.selectbox("Выберите преподавателя:", teachers, key="exp_teacher")
+        if st.button("Сформировать Excel", type="primary", use_container_width=True):
+            grid = get_schedule_for_teacher(sel)
+            st.session_state["exp_data"] = generate_excel(grid, title=sel)
+            st.session_state["exp_fname"] = f"schedule_{sel}.xlsx"
+
+    if "exp_data" in st.session_state:
+        st.download_button(
+            label="Скачать файл",
+            data=st.session_state["exp_data"],
+            file_name=st.session_state["exp_fname"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )

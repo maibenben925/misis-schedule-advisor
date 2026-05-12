@@ -329,6 +329,33 @@ def get_active_cancellations_for_date(sel_date: date) -> list[sqlite3.Row]:
     return rows
 
 
+def get_restored_cancellations_for_date(sel_date: date) -> list[sqlite3.Row]:
+    conn = _connect()
+    rows = conn.execute("""
+        SELECT c.id, c.schedule_id, c.cancel_date, c.reason,
+               c.is_restored, c.restored_schedule_id,
+               s.weekday, s.start, s.end, s.week_type,
+               l.title AS lesson_title, l.lesson_type, l.teacher,
+               g.name AS group_name,
+               r.name AS room_name, r.id AS room_id,
+               rs.weekday AS restored_weekday,
+               substr(rs.start,12,5) AS restored_start,
+               substr(rs.end,12,5) AS restored_end,
+               rr.name AS restored_room_name,
+               rr.building AS restored_room_building
+        FROM cancellations c
+        JOIN schedule s ON c.schedule_id = s.id
+        JOIN lessons l ON s.lesson_id = l.id
+        JOIN groups g ON s.group_id = g.id
+        JOIN rooms r ON s.room_id = r.id
+        LEFT JOIN schedule rs ON c.restored_schedule_id = rs.id
+        LEFT JOIN rooms rr ON rs.room_id = rr.id
+        WHERE c.cancel_date = ? AND c.is_restored = 1
+    """, (str(sel_date),)).fetchall()
+    conn.close()
+    return rows
+
+
 def get_restored_for_date(sel_date: date) -> list[sqlite3.Row]:
     conn = _connect()
     rows = conn.execute("""
@@ -355,13 +382,13 @@ def _slot_busy_for_groups_conn(conn, group_ids, weekday, start, end, week_type, 
     q = f"""
         SELECT COUNT(*) as cnt FROM schedule s
         WHERE s.group_id IN ({ph}) AND s.weekday = ? AND s.week_type = ?
-          AND s.start < ? AND s.end > ?
+          AND substr(s.start,12,5) < ? AND substr(s.end,12,5) > ?
           AND s.id NOT IN (
               SELECT c.schedule_id FROM cancellations c
               WHERE c.cancel_date = ? AND c.is_restored = 0
           )
     """
-    params = list(group_ids) + [weekday, week_type, _to_iso(end), _to_iso(start), cancel_date]
+    params = list(group_ids) + [weekday, week_type, end, start, cancel_date]
     cnt = conn.execute(q, params).fetchone()["cnt"]
     return cnt > 0
 
@@ -372,13 +399,12 @@ def _teacher_busy_conn(conn, teacher: str, weekday: str, start: str, end: str,
         SELECT s.id FROM schedule s
         JOIN lessons l ON s.lesson_id = l.id
         WHERE l.teacher LIKE ? AND s.weekday = ? AND s.week_type = ?
-          AND s.start < ? AND s.end > ?
+          AND substr(s.start,12,5) < ? AND substr(s.end,12,5) > ?
           AND s.id NOT IN (
               SELECT c.schedule_id FROM cancellations c
               WHERE c.cancel_date = ? AND c.is_restored = 0
           )
-    """, (f"%{teacher}%", weekday, week_type,
-          _to_iso(end), _to_iso(start), cancel_date)).fetchall()
+    """, (f"%{teacher}%", weekday, week_type, end, start, cancel_date)).fetchall()
     return len(rows) > 0
 
 
