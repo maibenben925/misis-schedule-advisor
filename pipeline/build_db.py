@@ -303,6 +303,19 @@ def create_db(lessons: list[dict], db_path: Path) -> None:
             needs_computers BOOLEAN DEFAULT 0,
             booking_date TEXT
         );
+        CREATE TABLE cancellations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            schedule_id INTEGER NOT NULL,
+            cancel_date TEXT NOT NULL,
+            reason TEXT,
+            is_restored BOOLEAN DEFAULT 0,
+            restored_schedule_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (schedule_id) REFERENCES schedule(id)
+        );
+        CREATE INDEX idx_cancellations_date ON cancellations(cancel_date);
+        CREATE INDEX idx_cancellations_schedule ON cancellations(schedule_id);
+        CREATE INDEX idx_cancellations_restored ON cancellations(is_restored);
     """)
 
     groups = set()
