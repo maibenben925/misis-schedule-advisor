@@ -1495,6 +1495,13 @@ elif page == "Управление":
                     st.success("Удалены все отмены!")
                     st.rerun()
 
+                if filtered and len(filtered) < len(all_cancels):
+                    if st.button("Удалить отфильтрованные", type="secondary", key="del_filtered_cancels"):
+                        for r in filtered:
+                            delete_cancellation(r["id"])
+                        st.success(f"Удалено {len(filtered)} отмен!")
+                        st.rerun()
+
             for r in filtered:
                 with st.container(border=True):
                     aa, bb, cc, dd = st.columns([2, 2, 3, 1])
