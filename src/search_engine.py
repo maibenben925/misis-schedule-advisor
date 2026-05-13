@@ -164,6 +164,48 @@ def get_lesson_info(schedule_id: int) -> sqlite3.Row | None:
     return row
 
 
+def get_lessons_info_batch(schedule_ids: list[int]) -> dict[int, sqlite3.Row]:
+    if not schedule_ids:
+        return {}
+    conn = _connect()
+    placeholders = ",".join("?" for _ in schedule_ids)
+    rows = conn.execute(f"""
+        SELECT
+            s.id            AS schedule_id,
+            s.weekday,
+            s.start,
+            s.end,
+            s.week_type,
+
+            l.id            AS lesson_id,
+            l.title         AS lesson_title,
+            l.lesson_type,
+            l.teacher,
+            l.needs_projector,
+            l.needs_computers,
+
+            g.id            AS group_id,
+            g.name          AS group_name,
+            g.students_count,
+
+            r.id            AS room_id,
+            r.name          AS room_name,
+            r.building      AS room_building,
+            r.floor         AS room_floor,
+            r.capacity      AS room_capacity,
+            r.has_projector AS room_has_projector,
+            r.has_computers AS room_has_computers
+
+        FROM schedule s
+        JOIN lessons  l ON s.lesson_id  = l.id
+        JOIN groups   g ON s.group_id   = g.id
+        JOIN rooms    r ON s.room_id    = r.id
+        WHERE s.id IN ({placeholders})
+    """, schedule_ids).fetchall()
+    conn.close()
+    return {r["schedule_id"]: r for r in rows}
+
+
 def filter_rooms(
     rooms: list[sqlite3.Row],
     students_count: int,

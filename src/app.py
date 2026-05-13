@@ -6,7 +6,7 @@ import pandas as pd
 import sqlite3
 from datetime import date, timedelta, datetime as dt
 
-from src.search_engine import get_lesson_info, find_room_for_event
+from src.search_engine import get_lesson_info, get_lessons_info_batch, find_room_for_event
 from src.optimization import mass_reallocate
 from src.stats import fund_summary_with_transfers, room_load_stats
 from src.cancellation import (
@@ -485,54 +485,55 @@ if page == "Инциденты":
                 date_map[r["id"]] = r.get("booking_date", str(sd))
 
             # Группируем по (lesson_id, weekday, start, end) — чтобы не смешивать разные временные слоты
-            lesson_display = {}  # (lid, weekday, start, end) -> dict
-            for sid in sorted(res.assignments):
-                s = res.assignments[sid]
-                info = get_lesson_info(sid)
+            info_cache = get_lessons_info_batch(list(res.assignments.keys()))
+
+            slot_groups: dict[tuple, list[tuple]] = {}
+            for sid in res.assignments:
+                info = info_cache.get(sid)
+                if info is None:
+                    continue
+                dk = (info["lesson_id"], info["weekday"], info["start"], info["end"])
+                slot_groups.setdefault(dk, []).append(sid)
+
+            lesson_display = {}
+            for display_key, sids_for_slot in slot_groups.items():
+                first_sid = sids_for_slot[0]
+                info = info_cache[first_sid]
+                s = res.assignments[first_sid]
                 lid = info["lesson_id"]
                 wt_key = (info["weekday"], info["start"], info["end"], info["week_type"])
                 n_dates = date_groups.get(wt_key, 1)
-                bdate = date_map.get(sid, "")
+                bdate = date_map.get(first_sid, "")
                 t_start = info["start"][11:16] if len(info["start"]) > 5 else info["start"]
                 t_end = info["end"][11:16] if len(info["end"]) > 5 else info["end"]
-                
-                display_key = (lid, info["weekday"], info["start"], info["end"])
-                if display_key not in lesson_display:
-                    lesson_display[display_key] = {
-                        "Время": slot_label(t_start, t_end),
-                        "Тип": info["lesson_type"],
-                        "Предмет": info["lesson_title"],
-                        "Группы": [],
-                        "Было": info["room_name"],
-                        "Стало": f"{s.name} (корп.{s.building}, эт.{s.floor})",
-                        "Штраф": s.penalty,
-                        "%": f"{s.match_percent}%",
-                        "n_dates": n_dates,
-                        "first_date": bdate,
-                    }
-                    # Считаем студентов только для ЭТОГО временного слота
-                    all_sids_for_this_slot = [sid2 for sid2 in res.assignments
-                                               if get_lesson_info(sid2) and 
-                                                  get_lesson_info(sid2)["lesson_id"] == lid and
-                                                  get_lesson_info(sid2)["weekday"] == info["weekday"] and
-                                                  get_lesson_info(sid2)["start"] == info["start"] and
-                                                  get_lesson_info(sid2)["end"] == info["end"]]
-                    total_st = sum(get_lesson_info(s2)["students_count"] for s2 in all_sids_for_this_slot)
-                    n_groups = len(all_sids_for_this_slot)
-                    need_proj = any(get_lesson_info(s2)["needs_projector"] for s2 in all_sids_for_this_slot)
-                    need_comp = any(get_lesson_info(s2)["needs_computers"] for s2 in all_sids_for_this_slot)
 
-                    req_parts = []
-                    req_parts.append(f"{total_st} чел.")
-                    if n_groups > 1:
-                        req_parts[0] += f" ({n_groups} гр.)"
-                    if need_proj:
-                        req_parts.append("проектор")
-                    if need_comp:
-                        req_parts.append("компьютеры")
-                    lesson_display[display_key]["Требования"] = " ".join(req_parts)
+                total_st = sum(info_cache[s2]["students_count"] for s2 in sids_for_slot)
+                n_groups = len(sids_for_slot)
+                need_proj = any(info_cache[s2]["needs_projector"] for s2 in sids_for_slot)
+                need_comp = any(info_cache[s2]["needs_computers"] for s2 in sids_for_slot)
 
-                lesson_display[display_key]["Группы"].append(info["group_name"])
+                req_parts = []
+                req_parts.append(f"{total_st} чел.")
+                if n_groups > 1:
+                    req_parts[0] += f" ({n_groups} гр.)"
+                if need_proj:
+                    req_parts.append("проектор")
+                if need_comp:
+                    req_parts.append("компьютеры")
+
+                lesson_display[display_key] = {
+                    "Время": slot_label(t_start, t_end),
+                    "Тип": info["lesson_type"],
+                    "Предмет": info["lesson_title"],
+                    "Группы": [info_cache[s2]["group_name"] for s2 in sids_for_slot],
+                    "Было": info["room_name"],
+                    "Стало": f"{s.name} (корп.{s.building}, эт.{s.floor})",
+                    "Штраф": s.penalty,
+                    "%": f"{s.match_percent}%",
+                    "n_dates": n_dates,
+                    "first_date": bdate,
+                    "Требования": " ".join(req_parts),
+                }
 
             rd = []
             for display_key, ld in lesson_display.items():

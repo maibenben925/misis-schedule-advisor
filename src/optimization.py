@@ -263,6 +263,7 @@ def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
             raise ValueError(f"Занятие schedule_id={sid} не найдено")
         lessons.append({
             "schedule_id": sid,
+            "lesson_id": info["lesson_id"],
             "students_count": info["students_count"],
             "needs_projector": bool(info["needs_projector"]),
             "needs_computers": bool(info["needs_computers"]),
@@ -295,8 +296,7 @@ def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
         # КРИТИЧНО: группируем по lesson_id (для лекций — объединяем группы)
         lesson_groups: dict[int, list[dict]] = {}
         for l in slot_lessons:
-            info = get_lesson_info(l["schedule_id"])
-            lid = info["lesson_id"]
+            lid = l["lesson_id"]
             lesson_groups.setdefault(lid, []).append(l)
 
         # Создаём "супер-уроки": для лекций суммируем студентов
