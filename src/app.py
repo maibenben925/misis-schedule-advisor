@@ -88,8 +88,18 @@ def d2wd(d):
     return WD_R.get(d.weekday(), "")
 
 
-def to_iso(t, d=None):
-    dt = str(d) if d else "2026-01-12"
+def wd_to_date(wd_name):
+    idx = WEEKDAYS.index(wd_name)
+    return str(BASE_MONDAY + timedelta(days=idx))
+
+
+def to_iso(t, d=None, weekday=None):
+    if d:
+        dt = str(d)
+    elif weekday:
+        dt = wd_to_date(weekday)
+    else:
+        dt = str(BASE_MONDAY)
     return f"{dt}T{t}:00+03:00"
 
 

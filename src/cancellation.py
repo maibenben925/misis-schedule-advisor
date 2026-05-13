@@ -38,8 +38,18 @@ def _d2wd(d: date) -> str:
     return WEEKDAYS[d.weekday()]
 
 
-def _to_iso(t: str, d: date | str | None = None) -> str:
-    dt = str(d) if d else "2026-01-12"
+def _wd_to_date(weekday_name: str) -> str:
+    idx = WEEKDAYS.index(weekday_name)
+    return str(BASE_MONDAY + timedelta(days=idx))
+
+
+def _to_iso(t: str, d: date | str | None = None, weekday: str | None = None) -> str:
+    if d:
+        dt = str(d)
+    elif weekday:
+        dt = _wd_to_date(weekday)
+    else:
+        dt = str(BASE_MONDAY)
     return f"{dt}T{t}:00+03:00"
 
 
@@ -398,8 +408,8 @@ def _get_free_rooms_for_restore_conn(conn, weekday, start, end, week_type,
                                       students_count, booking_date,
                                       orig_building="", orig_floor=0) -> list[dict]:
     from .search_engine import get_free_rooms
-    start_iso = _to_iso(start)
-    end_iso = _to_iso(end)
+    start_iso = _to_iso(start, weekday=weekday)
+    end_iso = _to_iso(end, weekday=weekday)
     free = get_free_rooms(weekday, start_iso, end_iso, week_type, booking_date=booking_date)
 
     result = []
@@ -631,8 +641,8 @@ def restore_lesson(cancellation_id: int, slot: RestoreSlot) -> int | None:
         if sid_info is None:
             continue
 
-        start_iso = _to_iso(slot.start)
-        end_iso = _to_iso(slot.end)
+        start_iso = _to_iso(slot.start, weekday=slot.weekday)
+        end_iso = _to_iso(slot.end, weekday=slot.weekday)
 
         conn.execute("""
             INSERT INTO schedule (lesson_id, group_id, room_id, weekday, start, end, week_type)
@@ -850,8 +860,8 @@ def mass_restore(cancellation_ids: list[int]) -> dict:
             if sid_info is None:
                 continue
 
-            start_iso = _to_iso(best.start)
-            end_iso = _to_iso(best.end)
+            start_iso = _to_iso(best.start, weekday=best.weekday)
+            end_iso = _to_iso(best.end, weekday=best.weekday)
 
             conn.execute("""
                 INSERT INTO schedule (lesson_id, group_id, room_id, weekday, start, end, week_type)
