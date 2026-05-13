@@ -364,7 +364,7 @@ def _show_booking_confirm_dialog(data):
     p_e = par.get("e", "?")
     p_wd = par.get("wd", "")
     p_wt = par.get("wt", "")
-    wt_label = "верхняя" if p_wt == "upper" else "нижняя" if p_wt else ""
+    wt_label = "Верхняя неделя" if p_wt == "upper" else "Нижняя неделя" if p_wt else ""
 
     st.write(f"**Аудитория:** {rm_name} (корп. {rm_bld}, эт. {rm_fl})")
     st.write(f"**Вместимость:** {rm_cap} мест")
@@ -602,7 +602,7 @@ elif page == "Бронирование":
         sel_date = st.date_input("Дата:", value=today, min_value=date(2026, 1, 12), key="b_date")
         wd = d2wd(sel_date)
         wt = d2wt(sel_date)
-        wt_label = "верхняя" if wt == "upper" else "нижняя"
+        wt_label = "Верхняя неделя" if wt == "upper" else "Нижняя неделя"
         st.caption(f"{wd} ({wt_label})")
         ts, te = st.columns(2)
         with ts:
@@ -1047,7 +1047,7 @@ elif page == "Расписание":
     for r in sg:
         sm[(r["room_id"], r["start"])] = r
 
-    sel_wt_label = "верхняя" if sel_wt == "upper" else "нижняя"
+    sel_wt_label = "Верхняя неделя" if sel_wt == "upper" else "Нижняя неделя"
     st.subheader(f"{sel_date.strftime('%d.%m.%Y')} — {sel_wd} ({sel_wt_label})")
 
     h = '<table style="border-collapse:collapse;width:100%;font-size:12px;">'
