@@ -125,6 +125,7 @@ def _find_lessons_by_teacher(teacher: str, date_from: date, date_to: date) -> li
         JOIN groups g ON s.group_id = g.id
         JOIN rooms r ON s.room_id = r.id
         WHERE l.teacher LIKE ?
+        AND r.building NOT IN ('Онлайн', 'Каф. ИЯКТ', 'Спортивный комплекс Беляево')
     """, (f"%{teacher}%",)).fetchall()
     conn.close()
 
@@ -155,6 +156,7 @@ def _find_lessons_by_discipline(lesson_title: str, date_from: date, date_to: dat
         JOIN groups g ON s.group_id = g.id
         JOIN rooms r ON s.room_id = r.id
         WHERE l.title LIKE ?
+        AND r.building NOT IN ('Онлайн', 'Каф. ИЯКТ', 'Спортивный комплекс Беляево')
     """, (f"%{lesson_title}%",)).fetchall()
     conn.close()
 

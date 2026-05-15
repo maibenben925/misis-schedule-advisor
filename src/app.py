@@ -757,7 +757,9 @@ elif page == "Отмена занятий":
                 FROM schedule s
                 JOIN lessons l ON s.lesson_id = l.id
                 JOIN groups g ON s.group_id = g.id
+                JOIN rooms r ON s.room_id = r.id
                 WHERE s.weekday = ? AND s.week_type = ?
+                AND r.building NOT IN ('Онлайн', 'Каф. ИЯКТ', 'Спортивный комплекс Беляево')
                 ORDER BY s.start, l.title
             """, (wd, wt)).fetchall()
             c.close()
