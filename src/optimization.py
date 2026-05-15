@@ -214,57 +214,6 @@ def _build_super_scored_rooms(
     return assignments
 
 
-def _build_scored_rooms(
-    cost_matrix: np.ndarray,
-    row_indices: list[int],
-    col_indices: list[int],
-    free_rooms: list,
-    lessons: list[dict],
-    lesson_idx_map: dict,
-    room_idx_map: dict,
-) -> dict[int, ScoredRoom]:
-    """Построить ScoredRoom для назначенных пар."""
-    assignments = {}
-
-    for row_idx, col_idx in zip(row_indices, col_indices):
-        sid = None
-        for s_id, idx in lesson_idx_map.items():
-            if idx == row_idx:
-                sid = s_id
-                break
-        if sid is None:
-            continue
-
-        lesson = lessons[row_idx]
-        room = free_rooms[col_idx]
-        penalty = int(cost_matrix[row_idx, col_idx])
-
-        # Вычисляем % пригодности — нужен min/max по этой строке
-        row_costs = cost_matrix[row_idx]
-        valid_costs = row_costs[row_costs < BIG_COST]
-        if len(valid_costs) > 1:
-            min_c, max_c = valid_costs.min(), valid_costs.max()
-            if max_c > min_c:
-                match_pct = round((1 - (penalty - min_c) / (max_c - min_c)) * 100, 1)
-            else:
-                match_pct = 100.0
-        else:
-            match_pct = 100.0
-
-        assignments[sid] = ScoredRoom(
-            room_id=room["id"],
-            name=room["name"],
-            building=room["building"],
-            floor=room["floor"],
-            capacity=room["capacity"],
-            has_projector=room["has_projector"],
-            has_computers=room["has_computers"],
-            penalty=penalty,
-            match_percent=match_pct,
-        )
-
-    return assignments
-
 
 def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
     """

@@ -226,58 +226,6 @@ def transfer_destinations(n: int = 10) -> dict:
     }
 
 
-def fund_summary() -> dict:
-    """Общая сводка по аудиторному фонду."""
-    conn = _connect()
-
-    n_rooms = conn.execute("""
-        SELECT COUNT(*) as cnt FROM rooms WHERE building NOT IN (?,?,?)
-    """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
-
-    n_buildings = conn.execute("""
-        SELECT COUNT(DISTINCT building) as cnt FROM rooms WHERE building NOT IN (?,?,?)
-    """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
-
-    n_lessons = conn.execute("""
-        SELECT COUNT(*) as cnt FROM schedule s
-        JOIN rooms r ON s.room_id = r.id
-        WHERE r.building NOT IN (?,?,?)
-    """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
-
-    n_unique_lesson_slots = conn.execute("""
-        SELECT COUNT(*) as cnt FROM (
-            SELECT DISTINCT s.lesson_id, s.weekday, s.start, s.week_type
-            FROM schedule s
-            JOIN rooms r ON s.room_id = r.id
-            WHERE r.building NOT IN (?,?,?)
-        )
-    """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
-
-    n_groups = conn.execute("""
-        SELECT COUNT(DISTINCT s.group_id) as cnt FROM schedule s
-        JOIN rooms r ON s.room_id = r.id
-        WHERE r.building NOT IN (?,?,?)
-    """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
-
-    total_capacity = conn.execute("""
-        SELECT SUM(capacity) as cnt FROM rooms WHERE building NOT IN (?,?,?)
-    """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
-
-    total_bookings = conn.execute("SELECT COUNT(*) as cnt FROM event_bookings").fetchone()["cnt"]
-
-    conn.close()
-
-    return {
-        "rooms": n_rooms,
-        "buildings": n_buildings,
-        "schedule_entries": n_lessons,
-        "unique_lesson_slots": n_unique_lesson_slots,
-        "groups": n_groups,
-        "total_capacity": total_capacity or 0,
-        "bookings": total_bookings,
-        "transfers": conn.execute("SELECT COUNT(*) as cnt FROM transfers").fetchone()["cnt"] if True else 0,
-    }
-
 
 def fund_summary_with_transfers() -> dict:
     """Общая сводка по аудиторному фонду (с переносами, бронированиями, отменами)."""
