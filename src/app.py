@@ -8,7 +8,7 @@ from datetime import date, timedelta, datetime as dt
 
 from src.search_engine import get_lesson_info, get_lessons_info_batch, find_room_for_event
 from src.optimization import mass_reallocate
-from src.stats import fund_summary_with_transfers, room_load_stats
+from src.stats import fund_summary_with_transfers, room_load_stats, load_by_slot
 from src.cancellation import (
     ensure_cancellations_table,
     preview_cancel_by_teacher,
@@ -1301,6 +1301,55 @@ elif page == "Статистика":
                 )
         else:
             st.info("Нет данных по загруженности.")
+
+    # ── 3. Загрузка по парам ──
+    st.subheader("Загрузка по парам")
+    st.caption("% занятых аудиторий для каждого дня и пары (берётся более загруженная неделя).")
+    ls = load_by_slot()
+    if ls:
+        weekdays = []
+        seen = set()
+        for r in ls:
+            if r["weekday"] not in seen:
+                weekdays.append(r["weekday"])
+                seen.add(r["weekday"])
+        slots = sorted(set(r["slot"] for r in ls), key=lambda s: int(s[0]))
+
+        matrix = {}
+        for r in ls:
+            matrix[(r["weekday"], r["slot"])] = r["load_pct"]
+
+        header = "<table style='width:100%;border-collapse:collapse;text-align:center;font-size:14px'>"
+        header += "<tr><th style='border:1px solid #ddd;padding:6px;background:#f0f0f0'>День / Пара</th>"
+        for sl in slots:
+            header += f"<th style='border:1px solid #ddd;padding:6px;background:#f0f0f0'>{sl}</th>"
+        header += "</tr>"
+
+        for wd in weekdays:
+            header += f"<tr><td style='border:1px solid #ddd;padding:6px;font-weight:bold;background:#f9f9f9'>{wd}</td>"
+            for sl in slots:
+                pct = matrix.get((wd, sl), 0)
+                if pct >= 70:
+                    bg = "#fee2e2"
+                elif pct >= 40:
+                    bg = "#fef3c7"
+                else:
+                    bg = "#d1fae5"
+                header += f"<td style='border:1px solid #ddd;padding:6px;background:{bg}'>{pct}%</td>"
+            header += "</tr>"
+        header += "</table>"
+        st.markdown(header, unsafe_allow_html=True)
+
+        busy_slots = [(r["weekday"], r["slot"], r["load_pct"]) for r in ls if r["load_pct"] >= 70]
+        free_slots = [(r["weekday"], r["slot"], r["load_pct"]) for r in ls if r["load_pct"] < 20]
+        if busy_slots:
+            top_busy = max(busy_slots, key=lambda x: x[2])
+            st.warning(f"**Пиковая нагрузка:** {top_busy[1]}, {top_busy[0]} — {top_busy[2]}% аудиторий занято.")
+        if free_slots:
+            top_free = min(free_slots, key=lambda x: x[2])
+            st.info(f"**Лучшее окно:** {top_free[1]}, {top_free[0]} — занято всего {top_free[2]}% аудиторий. Оптимально для мероприятий и переносов.")
+    else:
+        st.info("Нет данных.")
 
 
 # ═══ Страница 5: Управление ═══

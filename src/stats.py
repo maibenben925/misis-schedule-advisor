@@ -343,3 +343,62 @@ def room_load_stats(n: int = 10) -> dict:
         "total_rooms": len(room_list),
         "empty_rooms": sum(1 for r in room_list if r["occupied_slots"] == 0),
     }
+
+
+SLOTS = [
+    {"name": "1-я (09:00)", "start": "09:00", "end": "10:35"},
+    {"name": "2-я (10:50)", "start": "10:50", "end": "12:25"},
+    {"name": "3-я (12:40)", "start": "12:40", "end": "14:15"},
+    {"name": "4-я (14:30)", "start": "14:30", "end": "16:05"},
+    {"name": "5-я (16:20)", "start": "16:20", "end": "17:55"},
+    {"name": "6-я (18:00)", "start": "18:00", "end": "19:25"},
+    {"name": "7-я (19:35)", "start": "19:35", "end": "21:00"},
+]
+
+
+def load_by_slot() -> list[dict]:
+    """Загрузка аудиторий по парам: % занятых аудиторий для каждого (день, пара)."""
+    conn = _connect()
+
+    total_rooms = conn.execute("""
+        SELECT COUNT(*) as cnt FROM rooms WHERE building NOT IN (?,?,?)
+    """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
+
+    if total_rooms == 0:
+        conn.close()
+        return []
+
+    rows = conn.execute("""
+        SELECT s.weekday, s.start, s.week_type,
+               COUNT(DISTINCT s.room_id) as occupied
+        FROM schedule s
+        JOIN rooms r ON s.room_id = r.id
+        WHERE r.building NOT IN (?,?,?)
+        GROUP BY s.weekday, s.start, s.week_type
+    """, EXCLUDED_BUILDINGS).fetchall()
+
+    conn.close()
+
+    weekday_order = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"]
+
+    data = {}
+    for r in rows:
+        wd = r["weekday"]
+        start = r["start"][11:16] if len(r["start"]) > 5 else r["start"]
+        key = (wd, start)
+        if key not in data or r["occupied"] > data[key]:
+            data[key] = r["occupied"]
+
+    result = []
+    for wd in weekday_order:
+        for sl in SLOTS:
+            occupied = data.get((wd, sl["start"]), 0)
+            pct = round(occupied / total_rooms * 100, 1)
+            result.append({
+                "weekday": wd,
+                "slot": sl["name"],
+                "occupied": occupied,
+                "total": total_rooms,
+                "load_pct": pct,
+            })
+    return result
