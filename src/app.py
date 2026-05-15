@@ -576,13 +576,42 @@ if page == "Инциденты":
                 st.rerun()
         if res.unassigned:
             st.subheader("Не хватило")
-            ua = [
-                {
-                    "Предмет": get_lesson_info(s)["lesson_title"],
-                    "Группа": get_lesson_info(s)["group_name"],
-                }
-                for s in res.unassigned
-            ]
+
+            # Даты периода для unassigned
+            _sd = st.session_state.get("ir_sd", sd)
+            _ed = st.session_state.get("ir_ed", ed)
+
+            def _first_date(weekday: str, week_type: str, start_d: date, end_d: date) -> str:
+                d = start_d
+                while d <= end_d:
+                    if d2wd(d) == weekday and d2wt(d) == week_type:
+                        return str(d)
+                    d += timedelta(days=1)
+                return str(start_d)
+
+            ua = []
+            for detail in res.unassigned_details:
+                dd = _first_date(detail["weekday"], detail["week_type"], _sd, _ed)
+                req_parts = [f"{detail['students_count']} чел."]
+                if detail["needs_projector"]:
+                    req_parts.append("проектор")
+                if detail["needs_computers"]:
+                    req_parts.append("компьютеры")
+                # Для лекций — количество групп в скобках
+                group_display = detail["group_name"]
+                n_groups = len(detail["schedule_ids"])
+                if n_groups > 1:
+                    group_display = f"{group_display} ({n_groups} гр.)"
+                ua.append({
+                    "Дата": dd,
+                    "День": detail["weekday"],
+                    "Время": slot_label(t_from_iso(detail["start"]), t_from_iso(detail["end"])),
+                    "Тип": detail["lesson_type"],
+                    "Предмет": detail["lesson_title"],
+                    "Группа": group_display,
+                    "Требования": ", ".join(req_parts),
+                    "Причина": detail["reason"],
+                })
             st.dataframe(pd.DataFrame(ua), width="stretch", hide_index=True)
 
 

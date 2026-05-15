@@ -24,16 +24,44 @@ from .search_engine import (
 )
 from .scoring import calculate_penalty, ScoredRoom
 
+BIG_COST = 10**9  # штраф для невозможных назначений
+
 
 @dataclass
 class MassReallocationResult:
     assignments: dict[int, ScoredRoom] = field(default_factory=dict)
     unassigned: list[int] = field(default_factory=list)
+    unassigned_reasons: dict[int, str] = field(default_factory=dict)
+    unassigned_details: list[dict] = field(default_factory=list)
     total_penalty: int = 0
     avg_penalty: float = 0.0
     avg_match_percent: float = 0.0
     n_lessons: int = 0
     n_free_rooms: int = 0
+
+
+def _get_unassign_reason(unit: dict, free_rooms: list) -> str:
+    """Определить причину, почему юнит не может быть назначен."""
+    if not free_rooms:
+        return "Нет свободных аудиторий в слоте"
+
+    cap_ok = [r for r in free_rooms if r["capacity"] >= unit["students_count"]]
+    if not cap_ok:
+        max_cap = max(r["capacity"] for r in free_rooms)
+        return f"Макс. вместимость свободной аудитории: {max_cap} чел., нужно >= {unit['students_count']}"
+
+    proj_ok = [r for r in cap_ok if not unit["needs_projector"] or r["has_projector"]]
+    if not proj_ok:
+        return f"Есть {len(cap_ok)} ауд. по вместимости, но ни одна без проектора"
+
+    comp_ok = [r for r in proj_ok if not unit["needs_computers"] or r["has_computers"]]
+    if not comp_ok:
+        return f"Есть {len(proj_ok)} ауд. по вместимости и проектору, но ни одна без компьютеров"
+
+    names = ", ".join(r["name"] for r in comp_ok[:5])
+    n = len(comp_ok)
+    suffix = f" (из {n})" if n > 5 else ""
+    return f"Подходят: {names}{suffix} — заняты другими занятиями в этом слоте"
 
 
 def _build_cost_matrix(
@@ -54,7 +82,6 @@ def _build_cost_matrix(
     n = len(lessons)
     m = len(free_rooms)
 
-    BIG_COST = 10**9  # для невозможных назначений
     cost = np.full((n, m), BIG_COST, dtype=np.float64)
 
     lesson_idx_map = {}
@@ -99,7 +126,6 @@ def _build_super_cost_matrix(
     n = len(super_units)
     m = len(free_rooms)
 
-    BIG_COST = 10**9
     cost = np.full((n, m), BIG_COST, dtype=np.float64)
 
     unit_idx_map = {}
@@ -151,7 +177,7 @@ def _build_super_scored_rooms(
         penalty = int(cost_matrix[row_idx, col_idx])
 
         # Пропускаем невозможные назначения (BIG_COST)
-        if penalty >= 10**9:
+        if penalty >= BIG_COST:
             continue
 
         unit = super_units[row_idx]
@@ -159,7 +185,7 @@ def _build_super_scored_rooms(
 
         # Match %: относительный — 100% = лучший вариант, 0% = худший
         row_costs = cost_matrix[row_idx]
-        valid_costs = row_costs[row_costs < 10**9]
+        valid_costs = row_costs[row_costs < BIG_COST]
         if len(valid_costs) > 1:
             min_c, max_c = valid_costs.min(), valid_costs.max()
             if max_c > min_c:
@@ -215,7 +241,7 @@ def _build_scored_rooms(
 
         # Вычисляем % пригодности — нужен min/max по этой строке
         row_costs = cost_matrix[row_idx]
-        valid_costs = row_costs[row_costs < 10**9]
+        valid_costs = row_costs[row_costs < BIG_COST]
         if len(valid_costs) > 1:
             min_c, max_c = valid_costs.min(), valid_costs.max()
             if max_c > min_c:
@@ -288,6 +314,8 @@ def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
     # 3. Для каждого слота — независимая оптимизация
     all_assignments: dict[int, ScoredRoom] = {}
     all_unassigned: list[int] = []
+    all_unassigned_reasons: dict[int, str] = {}
+    all_unassigned_details: list[dict] = []
     total_penalty = 0
 
     for slot_key, slot_lessons in time_slots.items():
@@ -347,8 +375,25 @@ def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
         m = len(free_rooms)
 
         if m == 0:
+            reason = "Нет свободных аудиторий в слоте"
             for u in super_units:
-                all_unassigned.extend(u["schedule_ids"])
+                for sid in u["schedule_ids"]:
+                    all_unassigned.append(sid)
+                    all_unassigned_reasons[sid] = reason
+                all_unassigned_details.append({
+                    "schedule_ids": u["schedule_ids"],
+                    "lesson_title": u["lesson_title"],
+                    "lesson_type": u["lesson_type"],
+                    "group_name": u["group_name"],
+                    "students_count": u["students_count"],
+                    "needs_projector": u["needs_projector"],
+                    "needs_computers": u["needs_computers"],
+                    "weekday": weekday,
+                    "start": start,
+                    "end": end,
+                    "week_type": week_type,
+                    "reason": reason,
+                })
             continue
 
         # Матрица стоимостей для супер-уроков
@@ -369,14 +414,29 @@ def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
 
         # Неназначенные в этом слоте
         assigned_unit_indices = set()
-        for u_idx, u_info in unit_idx_map.items():
-            for r_idx, c_idx in zip(row_indices, col_indices):
-                if u_info == r_idx:
-                    assigned_unit_indices.add(u_idx)
-                    break
+        for r_idx, c_idx in zip(row_indices, col_indices):
+            if cost_matrix[r_idx, c_idx] < BIG_COST:
+                assigned_unit_indices.add(r_idx)
         for i, u in enumerate(super_units):
             if i not in assigned_unit_indices:
-                all_unassigned.extend(u["schedule_ids"])
+                reason = _get_unassign_reason(u, free_rooms)
+                for sid in u["schedule_ids"]:
+                    all_unassigned.append(sid)
+                    all_unassigned_reasons[sid] = reason
+                all_unassigned_details.append({
+                    "schedule_ids": u["schedule_ids"],
+                    "lesson_title": u["lesson_title"],
+                    "lesson_type": u["lesson_type"],
+                    "group_name": u["group_name"],
+                    "students_count": u["students_count"],
+                    "needs_projector": u["needs_projector"],
+                    "needs_computers": u["needs_computers"],
+                    "weekday": weekday,
+                    "start": start,
+                    "end": end,
+                    "week_type": week_type,
+                    "reason": reason,
+                })
 
     # 4. Итоги
     total_penalty = sum(s.penalty for s in all_assignments.values())
@@ -390,6 +450,8 @@ def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
     return MassReallocationResult(
         assignments=all_assignments,
         unassigned=all_unassigned,
+        unassigned_reasons=all_unassigned_reasons,
+        unassigned_details=all_unassigned_details,
         total_penalty=total_penalty,
         avg_penalty=round(avg_penalty, 1),
         avg_match_percent=round(avg_match, 1),
