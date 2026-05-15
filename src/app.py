@@ -446,9 +446,9 @@ if page == "Инциденты":
         today = date.today()
         d1, d2 = st.columns(2)
         with d1:
-            sd = st.date_input("Начало:", value=today, min_value=today)
+            sd = st.date_input("Начало:", value=today, min_value=today, key="inc_sd")
         with d2:
-            ed = st.date_input("Конец:", value=sd + timedelta(days=4), min_value=sd)
+            ed = st.date_input("Конец:", value=sd + timedelta(days=4), min_value=sd, key="inc_ed")
 
     st.divider()
 
@@ -742,7 +742,7 @@ elif page == "Отмена занятий":
 
         if ct == "Одиночная":
             today = date.today()
-            cn_single_date = st.date_input("Дата отмены:", value=today, min_value=today, key="cn_single_date")
+            cn_single_date = st.date_input("Дата отмены:", value=today, min_value=date(2026, 1, 12), key="cn_single_date")
 
             _WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
             _BASE_MONDAY = date(2026, 1, 12)
@@ -809,7 +809,7 @@ elif page == "Отмена занятий":
                 today = date.today()
                 d1, d2 = st.columns(2)
                 with d1:
-                    cn_sd = st.date_input("Начало:", value=today, min_value=today, key="cn_sd")
+                    cn_sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12), key="cn_sd")
                 with d2:
                     cn_ed = st.date_input("Конец:", value=cn_sd + timedelta(days=13), min_value=cn_sd, key="cn_ed")
                 cn_reason = st.text_input("Причина:", value="Болезнь преподавателя", key="cn_reason")
