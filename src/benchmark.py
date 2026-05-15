@@ -43,6 +43,7 @@ BIG_COST = 10**9
 class StrategyResult:
     name: str
     total_penalty: int
+    avg_penalty: float
     building_penalty: int
     n_assigned: int
     n_unassigned: int
@@ -296,9 +297,11 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
     elapsed = (time.perf_counter() - t0) * 1000
     total = sum(all_penalties)
 
+    avg = round(total / len(all_penalties), 1) if all_penalties else 0
     return StrategyResult(
         name="Random",
         total_penalty=total,
+        avg_penalty=avg,
         building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
@@ -362,10 +365,12 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
 
     elapsed = (time.perf_counter() - t0) * 1000
     total = sum(all_penalties)
+    avg = round(total / len(all_penalties), 1) if all_penalties else 0
 
     return StrategyResult(
         name="Greedy (best-fit)",
         total_penalty=total,
+        avg_penalty=avg,
         building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
@@ -438,10 +443,12 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
 
     elapsed = (time.perf_counter() - t0) * 1000
     total = sum(all_penalties)
+    avg = round(total / len(all_penalties), 1) if all_penalties else 0
 
     return StrategyResult(
         name="Hungarian (Kuhn-Munkres)",
         total_penalty=total,
+        avg_penalty=avg,
         building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
@@ -453,12 +460,13 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
 
 
 def _print_algorithm_card(result: StrategyResult, n_total: int) -> None:
+    avg = round(result.total_penalty / len(result.penalties), 1) if result.penalties else 0
     print(f"  [{result.name}]")
     print(f"    Суммарный штраф:              {result.total_penalty}")
-    print(f"      из них за смену корпуса:    {result.building_penalty}")
+    print(f"    Средний штраф:                 {avg}")
     print(f"    Назначено:                    {result.n_assigned} / {n_total}")
     print(f"    Не назначено:                 {result.n_unassigned} ({round(result.n_unassigned / n_total * 100, 1) if n_total else 0}%)")
-    print(f"    В другом корпусе:             {result.n_different_building} зан.")
+    print(f"    В другом корпусе:             {result.n_different_building} / {result.n_assigned} зан.")
     print(f"    Степень соответствия:          {result.avg_match_pct:.1f}%")
     print(f"    Время:                        {result.elapsed_ms:.2f} мс")
     print()
@@ -502,11 +510,14 @@ def _print_summary_table(all_results: list[tuple[str, str, list[StrategyResult]]
         print(f"  {'-'*62}")
 
         r, g, h = results
+        r_avg = round(r.total_penalty / len(r.penalties), 1) if r.penalties else 0
+        g_avg = round(g.total_penalty / len(g.penalties), 1) if g.penalties else 0
+        h_avg = round(h.total_penalty / len(h.penalties), 1) if h.penalties else 0
         pairs = [
             ("Суммарный штраф",            str(r.total_penalty),   str(g.total_penalty),   str(h.total_penalty)),
-            ("  из них за смену корпуса",  str(r.building_penalty),str(g.building_penalty),str(h.building_penalty)),
+            ("Средний штраф",              f"{r_avg:.1f}", f"{g_avg:.1f}", f"{h_avg:.1f}"),
             ("Не назначено",               f"{r.n_unassigned}/{n_total}", f"{g.n_unassigned}/{n_total}", f"{h.n_unassigned}/{n_total}"),
-            ("В другом корпусе (зан.)",    str(r.n_different_building), str(g.n_different_building), str(h.n_different_building)),
+            ("В другом корпусе",           f"{r.n_different_building}/{r.n_assigned}", f"{g.n_different_building}/{g.n_assigned}", f"{h.n_different_building}/{h.n_assigned}"),
             ("Степень соответствия (%)",    f"{r.avg_match_pct:.1f}", f"{g.avg_match_pct:.1f}", f"{h.avg_match_pct:.1f}"),
             ("Время (мс)",                 f"{r.elapsed_ms:.1f}",   f"{g.elapsed_ms:.1f}",   f"{h.elapsed_ms:.1f}"),
         ]
@@ -581,7 +592,7 @@ def run_scenario_3() -> tuple[str, str, list[StrategyResult]]:
 def run_scenario_4() -> tuple[str, str, list[StrategyResult]]:
     title = "4. Крупный корпус, один день"
     desc = "Перенос всех занятий из корпуса Л, Понедельник, upper"
-    lessons = _get_lessons_for_relocation("Л", "Понедельник", "upper")
+    lessons = _get_lessons_for_relocation("Б", "Понедельник", "upper")
     _print_scenario_header(title, desc, len(lessons))
     results = [strategy_random(lessons), strategy_greedy(lessons), strategy_hungarian(lessons)]
     _print_results_detail(results, len(lessons))
@@ -591,8 +602,8 @@ def run_scenario_4() -> tuple[str, str, list[StrategyResult]]:
 def run_scenario_5() -> tuple[str, str, list[StrategyResult]]:
     title = "5. Крупный корпус, один день, оба типа недель"
     desc = "Перенос всех занятий из корпуса Л, Понедельник (upper + lower)"
-    lessons_u = _get_lessons_for_relocation("Л", "Понедельник", "upper")
-    lessons_l = _get_lessons_for_relocation("Л", "Понедельник", "lower")
+    lessons_u = _get_lessons_for_relocation("Б", "Понедельник", "upper")
+    lessons_l = _get_lessons_for_relocation("Б", "Понедельник", "lower")
     lessons = lessons_u + lessons_l
     _print_scenario_header(title, desc, len(lessons))
     results = [strategy_random(lessons), strategy_greedy(lessons), strategy_hungarian(lessons)]
@@ -603,7 +614,7 @@ def run_scenario_5() -> tuple[str, str, list[StrategyResult]]:
 def run_scenario_6() -> tuple[str, str, list[StrategyResult]]:
     title = "6. Крупный корпус, полная неделя"
     desc = "Перенос всех занятий из корпуса Л, все дни недели, upper"
-    lessons = _get_lessons_for_relocation_building("Л", ["upper"])
+    lessons = _get_lessons_for_relocation_building("Б", ["upper"])
     _print_scenario_header(title, desc, len(lessons))
     results = [strategy_random(lessons), strategy_greedy(lessons), strategy_hungarian(lessons)]
     _print_results_detail(results, len(lessons))
@@ -613,7 +624,7 @@ def run_scenario_6() -> tuple[str, str, list[StrategyResult]]:
 def run_scenario_7() -> tuple[str, str, list[StrategyResult]]:
     title = "7. Закрытие корпуса Л на 2 недели"
     desc = "Перенос ВСЕХ занятий из корпуса Л (upper + lower, все дни) -- эквивалент закрытия на 2 недели"
-    lessons = _get_lessons_for_relocation_building("Л", ["upper", "lower"])
+    lessons = _get_lessons_for_relocation_building("Б", ["upper", "lower"])
     _print_scenario_header(title, desc, len(lessons))
     results = [strategy_random(lessons), strategy_greedy(lessons), strategy_hungarian(lessons)]
     _print_results_detail(results, len(lessons))
