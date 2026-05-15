@@ -446,7 +446,7 @@ if page == "Инциденты":
         today = date.today()
         d1, d2 = st.columns(2)
         with d1:
-            sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12))
+            sd = st.date_input("Начало:", value=today, min_value=today)
         with d2:
             ed = st.date_input("Конец:", value=sd + timedelta(days=4), min_value=sd)
 
@@ -639,7 +639,7 @@ elif page == "Бронирование":
     with c2:
         st.write("**Дата и время:**")
         today = date.today()
-        sel_date = st.date_input("Дата:", value=today, min_value=date(2026, 1, 12), key="b_date")
+        sel_date = st.date_input("Дата:", value=today, min_value=today, key="b_date")
         wd = d2wd(sel_date)
         wt = d2wt(sel_date)
         wt_label = "Верхняя неделя" if wt == "upper" else "Нижняя неделя"
@@ -742,7 +742,7 @@ elif page == "Отмена занятий":
 
         if ct == "Одиночная":
             today = date.today()
-            cn_single_date = st.date_input("Дата отмены:", value=today, min_value=date(2026, 1, 12), key="cn_single_date")
+            cn_single_date = st.date_input("Дата отмены:", value=today, min_value=today, key="cn_single_date")
 
             _WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
             _BASE_MONDAY = date(2026, 1, 12)
@@ -809,7 +809,7 @@ elif page == "Отмена занятий":
                 today = date.today()
                 d1, d2 = st.columns(2)
                 with d1:
-                    cn_sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12), key="cn_sd")
+                    cn_sd = st.date_input("Начало:", value=today, min_value=today, key="cn_sd")
                 with d2:
                     cn_ed = st.date_input("Конец:", value=cn_sd + timedelta(days=13), min_value=cn_sd, key="cn_ed")
                 cn_reason = st.text_input("Причина:", value="Болезнь преподавателя", key="cn_reason")
@@ -1383,12 +1383,27 @@ elif page == "Управление":
                 st.info(f"Показано: **{len(trs)}** переносов ({shown_records} записей в БД)")
             with col_del:
                 if st.button("Удалить ВСЕ переносы", type="secondary", key="del_all_transfers"):
-                    c = gc()
-                    c.execute("DELETE FROM transfers")
-                    c.commit()
-                    c.close()
-                    st.success("Удалены все переносы!")
-                    st.rerun()
+                    st.session_state["confirm_del_all_transfers"] = True
+
+                if st.session_state.get("confirm_del_all_transfers"):
+                    @st.dialog("Подтверждение удаления")
+                    def _confirm_del_all_transfers():
+                        st.warning("Вы уверены, что хотите удалить **все** переносы?")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("Удалить", type="primary", use_container_width=True):
+                                c = gc()
+                                c.execute("DELETE FROM transfers")
+                                c.commit()
+                                c.close()
+                                st.session_state["confirm_del_all_transfers"] = False
+                                st.success("Удалены все переносы!")
+                                st.rerun()
+                        with c2:
+                            if st.button("Отмена", use_container_width=True):
+                                st.session_state["confirm_del_all_transfers"] = False
+                                st.rerun()
+                    _confirm_del_all_transfers()
 
                 if trs and len(trs) < len(trs_list):
                     if st.button("Удалить отфильтрованные", type="secondary", key="del_filtered_transfers"):
@@ -1458,12 +1473,27 @@ elif page == "Управление":
                 st.info(f"Показано: **{len(bks)}** из {len(bks_all)} бронирований")
             with col_del:
                 if st.button("Удалить ВСЕ бронирования", type="secondary", key="del_all_bookings"):
-                    c = gc()
-                    c.execute("DELETE FROM event_bookings")
-                    c.commit()
-                    c.close()
-                    st.success(f"Удалено все {len(bks_all)} бронирований!")
-                    st.rerun()
+                    st.session_state["confirm_del_all_bookings"] = True
+
+                if st.session_state.get("confirm_del_all_bookings"):
+                    @st.dialog("Подтверждение удаления")
+                    def _confirm_del_all_bookings():
+                        st.warning("Вы уверены, что хотите удалить **все** бронирования?")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("Удалить", type="primary", use_container_width=True):
+                                c = gc()
+                                c.execute("DELETE FROM event_bookings")
+                                c.commit()
+                                c.close()
+                                st.session_state["confirm_del_all_bookings"] = False
+                                st.success(f"Удалено все {len(bks_all)} бронирований!")
+                                st.rerun()
+                        with c2:
+                            if st.button("Отмена", use_container_width=True):
+                                st.session_state["confirm_del_all_bookings"] = False
+                                st.rerun()
+                    _confirm_del_all_bookings()
                 if bks and len(bks) < len(bks_all):
                     if st.button("Удалить отфильтрованные", type="secondary", key="del_filtered_bookings"):
                         ids = [b["id"] for b in bks]
