@@ -43,13 +43,13 @@ BIG_COST = 10**9
 class StrategyResult:
     name: str
     total_penalty: int
-    avg_penalty: float
+    building_penalty: int
     n_assigned: int
     n_unassigned: int
+    n_different_building: int
+    avg_match_pct: float
     elapsed_ms: float
     penalties: list[int]
-    same_building_pct: float
-    match_pcts: list[float]
 
 
 def _wd_to_date(weekday_name: str) -> str:
@@ -198,6 +198,10 @@ def _build_cost_matrix(units: list[dict], rooms: list) -> np.ndarray:
     return cost
 
 
+def _building_penalty(unit: dict, room) -> int:
+    return 100 if room["building"] != unit["room_building"] else 0
+
+
 def _penalty_for_unit(unit: dict, room) -> int:
     if room["capacity"] < unit["students_count"]:
         return BIG_COST
@@ -254,6 +258,7 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
     n_assigned = 0
     n_unassigned = 0
     same_building_count = 0
+    total_building_penalty = 0
 
     t0 = time.perf_counter()
 
@@ -270,14 +275,14 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
 
         used_room_ids: set[int] = set()
         for unit in super_units:
+            all_penalties_for_unit = [_penalty_for_unit(unit, r) for r in free]
+            all_penalties_per_unit.append(all_penalties_for_unit)
+
             feasible = [r for r in free
                         if r["id"] not in used_room_ids
                         and r["capacity"] >= unit["students_count"]
                         and (not unit["needs_projector"] or r["has_projector"])
                         and (not unit["needs_computers"] or r["has_computers"])]
-            all_penalties_for_unit = [_penalty_for_unit(unit, r) for r in free
-                                      if r["id"] not in used_room_ids]
-            all_penalties_per_unit.append(all_penalties_for_unit)
 
             if not feasible:
                 n_unassigned += len(unit["schedule_ids"])
@@ -290,6 +295,8 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
             n_assigned += len(unit["schedule_ids"])
             if room["building"] == unit["room_building"]:
                 same_building_count += len(unit["schedule_ids"])
+            else:
+                total_building_penalty += 100
 
     elapsed = (time.perf_counter() - t0) * 1000
     total = sum(all_penalties)
@@ -299,13 +306,13 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
     return StrategyResult(
         name="Random",
         total_penalty=total,
-        avg_penalty=round(total / n_total, 1) if n_total else 0,
+        building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
+        n_different_building=n_assigned - same_building_count,
+        avg_match_pct=round(float(np.mean(match_pcts)), 1) if match_pcts else 0,
         elapsed_ms=round(elapsed, 2),
         penalties=all_penalties,
-        same_building_pct=round(same_building_count / n_assigned * 100, 1) if n_assigned else 0,
-        match_pcts=match_pcts,
     )
 
 
@@ -321,6 +328,7 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
     n_assigned = 0
     n_unassigned = 0
     same_building_count = 0
+    total_building_penalty = 0
 
     t0 = time.perf_counter()
 
@@ -337,14 +345,14 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
 
         used_room_ids: set[int] = set()
         for unit in super_units:
+            all_penalties_for_unit = [_penalty_for_unit(unit, r) for r in free]
+            all_penalties_per_unit.append(all_penalties_for_unit)
+
             feasible = [(r, _penalty_for_unit(unit, r)) for r in free
                         if r["id"] not in used_room_ids
                         and r["capacity"] >= unit["students_count"]
                         and (not unit["needs_projector"] or r["has_projector"])
                         and (not unit["needs_computers"] or r["has_computers"])]
-            all_penalties_for_unit = [_penalty_for_unit(unit, r) for r in free
-                                      if r["id"] not in used_room_ids]
-            all_penalties_per_unit.append(all_penalties_for_unit)
 
             if not feasible:
                 n_unassigned += len(unit["schedule_ids"])
@@ -357,6 +365,8 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
             n_assigned += len(unit["schedule_ids"])
             if room["building"] == unit["room_building"]:
                 same_building_count += len(unit["schedule_ids"])
+            else:
+                total_building_penalty += 100
 
     elapsed = (time.perf_counter() - t0) * 1000
     total = sum(all_penalties)
@@ -366,13 +376,13 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
     return StrategyResult(
         name="Greedy (best-fit)",
         total_penalty=total,
-        avg_penalty=round(total / n_total, 1) if n_total else 0,
+        building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
+        n_different_building=n_assigned - same_building_count,
+        avg_match_pct=round(float(np.mean(match_pcts)), 1) if match_pcts else 0,
         elapsed_ms=round(elapsed, 2),
         penalties=all_penalties,
-        same_building_pct=round(same_building_count / n_assigned * 100, 1) if n_assigned else 0,
-        match_pcts=match_pcts,
     )
 
 
@@ -387,6 +397,7 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
     n_assigned = 0
     n_unassigned = 0
     same_building_count = 0
+    total_building_penalty = 0
 
     t0 = time.perf_counter()
 
@@ -420,6 +431,8 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
             n_assigned += len(unit["schedule_ids"])
             if room["building"] == unit["room_building"]:
                 same_building_count += len(unit["schedule_ids"])
+            else:
+                total_building_penalty += 100
 
             valid_costs = cost[r_idx][cost[r_idx] < BIG_COST]
             if len(valid_costs) > 1:
@@ -435,32 +448,29 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
 
     elapsed = (time.perf_counter() - t0) * 1000
     total = sum(all_penalties)
-    n_total = len(all_penalties)
 
     return StrategyResult(
         name="Hungarian (Kuhn-Munkres)",
         total_penalty=total,
-        avg_penalty=round(total / n_total, 1) if n_total else 0,
+        building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
+        n_different_building=n_assigned - same_building_count,
+        avg_match_pct=round(float(np.mean(all_match_pcts)), 1) if all_match_pcts else 0,
         elapsed_ms=round(elapsed, 2),
         penalties=all_penalties,
-        same_building_pct=round(same_building_count / n_assigned * 100, 1) if n_assigned else 0,
-        match_pcts=all_match_pcts,
     )
 
 
 def _print_algorithm_card(result: StrategyResult, n_total: int) -> None:
     print(f"  [{result.name}]")
-    print(f"    Суммарный штраф:      {result.total_penalty}")
-    print(f"    Средний штраф:        {result.avg_penalty:.1f}")
-    print(f"    Медианный штраф:      {int(np.median(result.penalties)) if result.penalties else 0}")
-    print(f"    Максимальный штраф:   {max(result.penalties, default=0)}")
-    print(f"    Назначено:            {result.n_assigned} / {n_total}")
-    print(f"    Не назначено:         {result.n_unassigned} ({round(result.n_unassigned / n_total * 100, 1) if n_total else 0}%)")
-    print(f"    % в том же корпусе:   {result.same_building_pct:.1f}%")
-    print(f"    Средний match%:       {round(float(np.mean(result.match_pcts)), 1) if result.match_pcts else 0}%")
-    print(f"    Время:                {result.elapsed_ms:.2f} мс")
+    print(f"    Суммарный штраф:              {result.total_penalty}")
+    print(f"      из них за смену корпуса:    {result.building_penalty}")
+    print(f"    Назначено:                    {result.n_assigned} / {n_total}")
+    print(f"    Не назначено:                 {result.n_unassigned} ({round(result.n_unassigned / n_total * 100, 1) if n_total else 0}%)")
+    print(f"    В другом корпусе:             {result.n_different_building} зан.")
+    print(f"    Степень соответствия:          {result.avg_match_pct:.1f}%")
+    print(f"    Время:                        {result.elapsed_ms:.2f} мс")
     print()
 
 
@@ -482,7 +492,8 @@ def _print_results_detail(results: list[StrategyResult], n_total: int) -> None:
     for res in results[:2]:
         if h.total_penalty > 0:
             d = round((res.total_penalty - h.total_penalty) / h.total_penalty * 100, 1)
-            print(f"  >> Hungarian лучше {res.name} на {d}% по суммарному штрафу")
+            saved_building = res.n_different_building - h.n_different_building
+            print(f"  >> Hungarian лучше {res.name}: штраф на {d}% меньше, {saved_building} зан. дополнительно остались в своём корпусе")
     print()
 
 
@@ -497,24 +508,25 @@ def _print_summary_table(all_results: list[tuple[str, str, list[StrategyResult]]
         n_total = results[0].n_assigned + results[0].n_unassigned
         short = title.split(". ", 1)[-1] if ". " in title else title
         print(f"  {short} ({n_total} зан.)")
-        print(f"  {'':20s}  {'Random':>10s}  {'Greedy':>10s}  {'Hungarian':>10s}")
-        print(f"  {'-'*54}")
+        print(f"  {'':28s}  {'Random':>10s}  {'Greedy':>10s}  {'Hungarian':>10s}")
+        print(f"  {'-'*62}")
 
         r, g, h = results
         pairs = [
-            ("Суммарный штраф",  str(r.total_penalty),  str(g.total_penalty),  str(h.total_penalty)),
-            ("Средний штраф",    f"{r.avg_penalty:.1f}", f"{g.avg_penalty:.1f}", f"{h.avg_penalty:.1f}"),
-            ("Макс. штраф",      str(max(r.penalties, default=0)), str(max(g.penalties, default=0)), str(max(h.penalties, default=0))),
-            ("Не назначено",     f"{r.n_unassigned}/{n_total}", f"{g.n_unassigned}/{n_total}", f"{h.n_unassigned}/{n_total}"),
-            ("% в том же корп.", f"{r.same_building_pct:.1f}%", f"{g.same_building_pct:.1f}%", f"{h.same_building_pct:.1f}%"),
-            ("Время (мс)",       f"{r.elapsed_ms:.1f}", f"{g.elapsed_ms:.1f}", f"{h.elapsed_ms:.1f}"),
+            ("Суммарный штраф",            str(r.total_penalty),   str(g.total_penalty),   str(h.total_penalty)),
+            ("  из них за смену корпуса",  str(r.building_penalty),str(g.building_penalty),str(h.building_penalty)),
+            ("Не назначено",               f"{r.n_unassigned}/{n_total}", f"{g.n_unassigned}/{n_total}", f"{h.n_unassigned}/{n_total}"),
+            ("В другом корпусе (зан.)",    str(r.n_different_building), str(g.n_different_building), str(h.n_different_building)),
+            ("Степень соответствия (%)",    f"{r.avg_match_pct:.1f}", f"{g.avg_match_pct:.1f}", f"{h.avg_match_pct:.1f}"),
+            ("Время (мс)",                 f"{r.elapsed_ms:.1f}",   f"{g.elapsed_ms:.1f}",   f"{h.elapsed_ms:.1f}"),
         ]
         for label, rv, gv, hv in pairs:
-            print(f"  {label:20s}  {rv:>10s}  {gv:>10s}  {hv:>10s}")
+            print(f"  {label:28s}  {rv:>10s}  {gv:>10s}  {hv:>10s}")
 
         if h.total_penalty > 0:
             delta = round((g.total_penalty - h.total_penalty) / h.total_penalty * 100, 1)
-            print(f"  Hungarian > Greedy: +{delta}%")
+            saved = g.n_different_building - h.n_different_building
+            print(f"  Hungarian > Greedy: штраф -{delta}%, в своём корпусе на {saved} зан. больше")
         print()
 
 
