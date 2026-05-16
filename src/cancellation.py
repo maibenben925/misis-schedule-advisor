@@ -1,56 +1,12 @@
 from __future__ import annotations
 
 import sqlite3
-import os
 from dataclasses import dataclass
 from datetime import date, timedelta
 from collections import defaultdict
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
-
-WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-
-SLOTS = [
-    {"name": "1-я пара", "start": "09:00", "end": "10:35"},
-    {"name": "2-я пара", "start": "10:50", "end": "12:25"},
-    {"name": "3-я пара", "start": "12:40", "end": "14:15"},
-    {"name": "4-я пара", "start": "14:30", "end": "16:05"},
-    {"name": "5-я пара", "start": "16:20", "end": "17:55"},
-    {"name": "6-я пара", "start": "18:00", "end": "19:25"},
-    {"name": "7-я пара", "start": "19:35", "end": "21:00"},
-]
-
-BASE_MONDAY = date(2026, 1, 12)
-
-
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def _d2wt(d: date) -> str:
-    diff = (d - BASE_MONDAY).days
-    return "upper" if (diff // 7) % 2 == 0 else "lower"
-
-
-def _d2wd(d: date) -> str:
-    return WEEKDAYS[d.weekday()]
-
-
-def _wd_to_date(weekday_name: str) -> str:
-    idx = WEEKDAYS.index(weekday_name)
-    return str(BASE_MONDAY + timedelta(days=idx))
-
-
-def _to_iso(t: str, d: date | str | None = None, weekday: str | None = None) -> str:
-    if d:
-        dt = str(d)
-    elif weekday:
-        dt = _wd_to_date(weekday)
-    else:
-        dt = str(BASE_MONDAY)
-    return f"{dt}T{t}:00+03:00"
+from src.config import DB_PATH, WEEKDAYS, SLOTS, BASE_MONDAY
+from src.utils import gc, d2wt, d2wd, wd_to_date, to_iso
 
 
 def _slot_index(start: str) -> int:
@@ -62,7 +18,7 @@ def _slot_index(start: str) -> int:
 
 
 def ensure_cancellations_table():
-    conn = _connect()
+    conn = gc()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS cancellations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,7 +69,7 @@ class RestoreSlot:
 
 
 def _find_lessons_by_teacher(teacher: str, date_from: date, date_to: date) -> list[dict]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("""
         SELECT s.id AS schedule_id, s.weekday, s.start, s.end, s.week_type,
                l.id AS lesson_id, l.title, l.lesson_type, l.teacher,
@@ -132,7 +88,7 @@ def _find_lessons_by_teacher(teacher: str, date_from: date, date_to: date) -> li
     dates_by_key = defaultdict(list)
     d = date_from
     while d <= date_to:
-        dates_by_key[(_d2wd(d), _d2wt(d))].append(d)
+        dates_by_key[(d2wd(d), d2wt(d))].append(d)
         d += timedelta(days=1)
 
     result = []
@@ -144,7 +100,7 @@ def _find_lessons_by_teacher(teacher: str, date_from: date, date_to: date) -> li
 
 
 def _find_lessons_by_discipline(lesson_title: str, date_from: date, date_to: date) -> list[dict]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("""
         SELECT s.id AS schedule_id, s.weekday, s.start, s.end, s.week_type,
                l.id AS lesson_id, l.title, l.lesson_type, l.teacher,
@@ -163,7 +119,7 @@ def _find_lessons_by_discipline(lesson_title: str, date_from: date, date_to: dat
     dates_by_key = defaultdict(list)
     d = date_from
     while d <= date_to:
-        dates_by_key[(_d2wd(d), _d2wt(d))].append(d)
+        dates_by_key[(d2wd(d), d2wt(d))].append(d)
         d += timedelta(days=1)
 
     result = []
@@ -175,7 +131,7 @@ def _find_lessons_by_discipline(lesson_title: str, date_from: date, date_to: dat
 
 
 def _find_single_lesson(schedule_id: int, cancel_date: date) -> dict | None:
-    conn = _connect()
+    conn = gc()
     row = conn.execute("""
         SELECT s.id AS schedule_id, s.weekday, s.start, s.end, s.week_type,
                l.id AS lesson_id, l.title, l.lesson_type, l.teacher,
@@ -195,7 +151,7 @@ def _find_single_lesson(schedule_id: int, cancel_date: date) -> dict | None:
 
 
 def _to_previews(rows: list[dict]) -> list[CancelPreview]:
-    conn = _connect()
+    conn = gc()
     existing = set()
     for r in rows:
         eid = conn.execute(
@@ -217,7 +173,7 @@ def _to_previews(rows: list[dict]) -> list[CancelPreview]:
             teacher=r["teacher"] or "",
             group_name=r["group_name"],
             room_name=r["room_name"],
-            weekday=_d2wd(date.fromisoformat(r["cancel_date"])),
+            weekday=d2wd(date.fromisoformat(r["cancel_date"])),
             start=r["start"][11:16] if len(r["start"]) > 5 else r["start"],
             end=r["end"][11:16] if len(r["end"]) > 5 else r["end"],
             cancel_date=r["cancel_date"],
@@ -243,7 +199,7 @@ def preview_cancel_single(schedule_id: int, cancel_date: date) -> list[CancelPre
 
 
 def apply_cancels(previews: list[CancelPreview], reason: str) -> int:
-    conn = _connect()
+    conn = gc()
     count = 0
     for p in previews:
         existing = conn.execute(
@@ -267,7 +223,7 @@ def get_cancellations(
     date_to: date | None = None,
     is_restored: bool | None = None,
 ) -> list[sqlite3.Row]:
-    conn = _connect()
+    conn = gc()
     q = """
         SELECT c.id, c.schedule_id, c.cancel_date, c.reason,
                c.is_restored, c.restored_schedule_id, c.created_at,
@@ -307,7 +263,7 @@ def get_cancellations(
 
 
 def get_active_cancellations_for_date(sel_date: date) -> list[sqlite3.Row]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("""
         SELECT c.id, c.schedule_id, c.cancel_date, c.reason,
                c.is_restored, c.restored_schedule_id,
@@ -327,7 +283,7 @@ def get_active_cancellations_for_date(sel_date: date) -> list[sqlite3.Row]:
 
 
 def get_restored_cancellations_for_date(sel_date: date) -> list[sqlite3.Row]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("""
         SELECT c.id, c.schedule_id, c.cancel_date, c.reason,
                c.is_restored, c.restored_schedule_id,
@@ -354,7 +310,7 @@ def get_restored_cancellations_for_date(sel_date: date) -> list[sqlite3.Row]:
 
 
 def get_restored_for_date(sel_date: date) -> list[sqlite3.Row]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("""
         SELECT c.id, c.schedule_id, c.cancel_date, c.reason,
                c.restored_schedule_id,
@@ -369,7 +325,7 @@ def get_restored_for_date(sel_date: date) -> list[sqlite3.Row]:
         JOIN rooms r ON rs.room_id = r.id
         WHERE c.is_restored = 1
           AND rs.weekday = ? AND rs.week_type = ?
-    """, (_d2wd(sel_date), _d2wt(sel_date))).fetchall()
+    """, (d2wd(sel_date), d2wt(sel_date))).fetchall()
     conn.close()
     return rows
 
@@ -410,8 +366,8 @@ def _get_free_rooms_for_restore_conn(conn, weekday, start, end, week_type,
                                       students_count, booking_date,
                                       orig_building="", orig_floor=0) -> list[dict]:
     from .search_engine import get_free_rooms
-    start_iso = _to_iso(start, weekday=weekday)
-    end_iso = _to_iso(end, weekday=weekday)
+    start_iso = to_iso(start, weekday=weekday)
+    end_iso = to_iso(end, weekday=weekday)
     free = get_free_rooms(weekday, start_iso, end_iso, week_type, booking_date=booking_date)
 
     result = []
@@ -468,8 +424,8 @@ def _find_restore_candidates_conn(conn, row, group_ids, teacher, cancel_dt,
     workdays_checked = 0
 
     while d <= end_d and workdays_checked < 10:
-        wd = _d2wd(d)
-        wt = _d2wt(d)
+        wd = d2wd(d)
+        wt = d2wt(d)
         if d.weekday() >= 6:
             d += timedelta(days=1)
             continue
@@ -537,7 +493,7 @@ def _find_restore_candidates_conn(conn, row, group_ids, teacher, cancel_dt,
 
 def _find_sibling_cancellations(lesson_id: int, cancel_date: str,
                                 weekday: str, start: str, week_type: str) -> list[dict]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("""
         SELECT c.schedule_id, s.group_id
         FROM cancellations c
@@ -550,7 +506,7 @@ def _find_sibling_cancellations(lesson_id: int, cancel_date: str,
 
 
 def find_restore_slots(cancellation_id: int, search_days: int = 10) -> list[RestoreSlot]:
-    conn = _connect()
+    conn = gc()
     row = conn.execute("""
         SELECT c.schedule_id, c.cancel_date,
                s.weekday, s.start, s.end, s.week_type,
@@ -585,7 +541,7 @@ def find_restore_slots(cancellation_id: int, search_days: int = 10) -> list[Rest
 
     start_from = max(date.today(), cancel_dt + timedelta(days=1))
 
-    conn2 = _connect()
+    conn2 = gc()
     candidates = _find_restore_candidates_conn(
         conn2, row, group_ids, teacher, cancel_dt,
         orig_wd_idx, orig_slot_idx,
@@ -609,7 +565,7 @@ def find_restore_slots(cancellation_id: int, search_days: int = 10) -> list[Rest
 
 
 def restore_lesson(cancellation_id: int, slot: RestoreSlot) -> int | None:
-    conn = _connect()
+    conn = gc()
     row = conn.execute("""
         SELECT c.schedule_id, s.lesson_id, s.group_id, s.room_id,
                s.weekday, s.start, s.end, s.week_type,
@@ -643,8 +599,8 @@ def restore_lesson(cancellation_id: int, slot: RestoreSlot) -> int | None:
         if sid_info is None:
             continue
 
-        start_iso = _to_iso(slot.start, weekday=slot.weekday)
-        end_iso = _to_iso(slot.end, weekday=slot.weekday)
+        start_iso = to_iso(slot.start, weekday=slot.weekday)
+        end_iso = to_iso(slot.end, weekday=slot.weekday)
 
         conn.execute("""
             INSERT INTO schedule (lesson_id, group_id, room_id, weekday, start, end, week_type)
@@ -665,7 +621,7 @@ def restore_lesson(cancellation_id: int, slot: RestoreSlot) -> int | None:
 
 
 def mass_restore_preview(cancellation_ids: list[int]) -> list[dict]:
-    conn = _connect()
+    conn = gc()
     preview = []
     processed = set()
     reserved: list[dict] = []
@@ -783,7 +739,7 @@ def mass_restore_preview(cancellation_ids: list[int]) -> list[dict]:
 
 
 def mass_restore(cancellation_ids: list[int]) -> dict:
-    conn = _connect()
+    conn = gc()
     results = {"restored": 0, "failed": 0, "no_slots": 0, "details": []}
 
     processed = set()
@@ -862,8 +818,8 @@ def mass_restore(cancellation_ids: list[int]) -> dict:
             if sid_info is None:
                 continue
 
-            start_iso = _to_iso(best.start, weekday=best.weekday)
-            end_iso = _to_iso(best.end, weekday=best.weekday)
+            start_iso = to_iso(best.start, weekday=best.weekday)
+            end_iso = to_iso(best.end, weekday=best.weekday)
 
             conn.execute("""
                 INSERT INTO schedule (lesson_id, group_id, room_id, weekday, start, end, week_type)
@@ -911,7 +867,7 @@ def _find_sibling_cancellation_ids(conn, lesson_id, weekday, start, week_type,
 
 
 def delete_cancellation(cid: int):
-    conn = _connect()
+    conn = gc()
     row = conn.execute("SELECT is_restored, restored_schedule_id FROM cancellations WHERE id = ?",
                        (cid,)).fetchone()
     if row and row["is_restored"] and row["restored_schedule_id"]:
@@ -922,7 +878,7 @@ def delete_cancellation(cid: int):
 
 
 def get_all_teachers() -> list[str]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("""
         SELECT DISTINCT teacher FROM lessons WHERE teacher IS NOT NULL AND teacher != ''
         ORDER BY teacher
@@ -932,7 +888,7 @@ def get_all_teachers() -> list[str]:
 
 
 def get_all_disciplines() -> list[str]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("SELECT DISTINCT title FROM lessons ORDER BY title").fetchall()
     conn.close()
     return [r["title"] for r in rows]

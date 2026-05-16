@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import sqlite3
-import os
 import io
 from dataclasses import dataclass
 from collections import defaultdict
@@ -10,20 +9,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
-
-WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
+from src.config import DB_PATH, WEEKDAYS, SLOTS
+from src.utils import gc
 WD_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-
-SLOTS = [
-    {"name": "1-я пара", "start": "09:00", "end": "10:35"},
-    {"name": "2-я пара", "start": "10:50", "end": "12:25"},
-    {"name": "3-я пара", "start": "12:40", "end": "14:15"},
-    {"name": "4-я пара", "start": "14:30", "end": "16:05"},
-    {"name": "5-я пара", "start": "16:20", "end": "17:55"},
-    {"name": "6-я пара", "start": "18:00", "end": "19:25"},
-    {"name": "7-я пара", "start": "19:35", "end": "21:00"},
-]
 
 STATE_NORMAL = "normal"
 STATE_CANCELLED = "cancelled"
@@ -37,11 +25,6 @@ class CellEntry:
     state: str
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
 
 def _slot_by_start(start: str) -> int:
     s = start[11:16] if len(start) > 5 else start
@@ -52,7 +35,7 @@ def _slot_by_start(start: str) -> int:
 
 
 def get_all_groups() -> list[str]:
-    conn = _connect()
+    conn = gc()
     rows = conn.execute("SELECT name FROM groups ORDER BY name").fetchall()
     conn.close()
     return [r["name"] for r in rows]
@@ -181,7 +164,7 @@ def _build_schedule_grid(
 
 
 def get_schedule_for_group(group_name: str) -> dict[str, dict[str, dict[int, list[CellEntry]]]]:
-    conn = _connect()
+    conn = gc()
 
     entries = conn.execute("""
         SELECT s.id AS schedule_id, s.weekday, s.start, s.end, s.week_type,
@@ -213,7 +196,7 @@ def get_schedule_for_group(group_name: str) -> dict[str, dict[str, dict[int, lis
 
 
 def get_schedule_for_teacher(teacher: str) -> dict[str, dict[str, dict[int, list[CellEntry]]]]:
-    conn = _connect()
+    conn = gc()
 
     entries = conn.execute("""
         SELECT s.id AS schedule_id, s.weekday, s.start, s.end, s.week_type,

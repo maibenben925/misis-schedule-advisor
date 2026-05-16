@@ -66,22 +66,15 @@ def _get_unassign_reason(unit: dict, free_rooms: list) -> str:
 def _build_super_cost_matrix(
     super_units: list[dict],
     free_rooms: list,
-) -> tuple[np.ndarray, dict, dict]:
+) -> np.ndarray:
     """Матрица стоимостей для 'супер-уроков' (лекций с суммарными студентами)."""
     n = len(super_units)
     m = len(free_rooms)
 
     cost = np.full((n, m), BIG_COST, dtype=np.float64)
 
-    unit_idx_map = {}
-    room_idx_map = {}
-
     for i, unit in enumerate(super_units):
-        unit_idx_map[i] = i
-
         for j, room in enumerate(free_rooms):
-            room_idx_map[room["id"]] = j
-
             # Hard constraints: суммарная вместимость
             if room["capacity"] < unit["students_count"]:
                 continue
@@ -103,7 +96,7 @@ def _build_super_cost_matrix(
                 alt_has_computers=room["has_computers"],
             )
 
-    return cost, unit_idx_map, room_idx_map
+    return cost
 
 
 def _build_super_scored_rooms(
@@ -112,8 +105,6 @@ def _build_super_scored_rooms(
     col_indices: list[int],
     free_rooms: list,
     super_units: list[dict],
-    unit_idx_map: dict,
-    room_idx_map: dict,
 ) -> dict[int, ScoredRoom]:
     """ScoredRoom для супер-уроков: одна аудитория → все schedule_ids лекции."""
     assignments = {}
@@ -294,7 +285,7 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
             continue
 
         # Матрица стоимостей для супер-уроков
-        cost_matrix, unit_idx_map, room_idx_map = _build_super_cost_matrix(
+        cost_matrix = _build_super_cost_matrix(
             super_units, free_rooms
         )
 
@@ -304,7 +295,7 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
         # Назначения для этого слота
         slot_assignments = _build_super_scored_rooms(
             cost_matrix, list(row_indices), list(col_indices),
-            free_rooms, super_units, unit_idx_map, room_idx_map,
+            free_rooms, super_units,
         )
 
         all_assignments.update(slot_assignments)

@@ -14,12 +14,10 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from dataclasses import dataclass
 import random
 import time
 import sqlite3
-import os
-from dataclasses import dataclass
-from datetime import date, timedelta
 
 import numpy as np
 from scipy.optimize import linear_sum_assignment
@@ -29,12 +27,9 @@ if __name__ == "__main__" and __package__ is None:
     __package__ = "src"
 
 from .search_engine import get_free_rooms, get_lesson_info
-from .scoring import calculate_penalty, ScoredRoom
-
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
-
-WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-BASE_MONDAY = date(2026, 1, 12)
+from .scoring import calculate_penalty
+from .config import DB_PATH, WEEKDAYS, BASE_MONDAY
+from .utils import wd_to_date, to_iso
 
 BIG_COST = 10**9
 
@@ -44,22 +39,12 @@ class StrategyResult:
     name: str
     total_penalty: int
     avg_penalty: float
-    building_penalty: int
     n_assigned: int
     n_unassigned: int
     n_different_building: int
     avg_match_pct: float
     elapsed_ms: float
     penalties: list[int]
-
-
-def _wd_to_date(weekday_name: str) -> str:
-    idx = WEEKDAYS.index(weekday_name)
-    return str(BASE_MONDAY + timedelta(days=idx))
-
-
-def _to_iso(t: str, weekday: str) -> str:
-    return f"{_wd_to_date(weekday)}T{t}:00+03:00"
 
 
 def _get_lessons_for_relocation(building: str, weekday: str, week_type: str) -> list[dict]:
@@ -199,10 +184,6 @@ def _build_cost_matrix(units: list[dict], rooms: list) -> np.ndarray:
     return cost
 
 
-def _building_penalty(unit: dict, room) -> int:
-    return 100 if room["building"] != unit["room_building"] else 0
-
-
 def _penalty_for_unit(unit: dict, room) -> int:
     if room["capacity"] < unit["students_count"]:
         return BIG_COST
@@ -236,8 +217,8 @@ def _compute_match_pct(penalty: int, all_penalties_for_unit: list[int]) -> float
 
 def _get_free_rooms_for_slot(weekday: str, start: str, end: str, week_type: str,
                               excluded_ids: set[int]) -> list:
-    start_iso = _to_iso(start[11:16] if len(start) > 16 else start, weekday)
-    end_iso = _to_iso(end[11:16] if len(end) > 16 else end, weekday)
+    start_iso = to_iso(start[11:16] if len(start) > 16 else start, weekday=weekday)
+    end_iso = to_iso(end[11:16] if len(end) > 16 else end, weekday=weekday)
     return [r for r in get_free_rooms(weekday, start_iso, end_iso, week_type)
             if r["id"] not in excluded_ids]
 
@@ -254,7 +235,6 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
     n_assigned = 0
     n_unassigned = 0
     same_building_count = 0
-    total_building_penalty = 0
 
     t0 = time.perf_counter()
 
@@ -291,8 +271,6 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
             n_assigned += len(unit["schedule_ids"])
             if room["building"] == unit["room_building"]:
                 same_building_count += len(unit["schedule_ids"])
-            else:
-                total_building_penalty += 100
 
     elapsed = (time.perf_counter() - t0) * 1000
     total = sum(all_penalties)
@@ -302,7 +280,6 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
         name="Random",
         total_penalty=total,
         avg_penalty=avg,
-        building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
         n_different_building=n_assigned - same_building_count,
@@ -323,7 +300,6 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
     n_assigned = 0
     n_unassigned = 0
     same_building_count = 0
-    total_building_penalty = 0
 
     t0 = time.perf_counter()
 
@@ -360,8 +336,6 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
             n_assigned += len(unit["schedule_ids"])
             if room["building"] == unit["room_building"]:
                 same_building_count += len(unit["schedule_ids"])
-            else:
-                total_building_penalty += 100
 
     elapsed = (time.perf_counter() - t0) * 1000
     total = sum(all_penalties)
@@ -371,7 +345,6 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
         name="Greedy (best-fit)",
         total_penalty=total,
         avg_penalty=avg,
-        building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
         n_different_building=n_assigned - same_building_count,
@@ -392,7 +365,6 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
     n_assigned = 0
     n_unassigned = 0
     same_building_count = 0
-    total_building_penalty = 0
 
     t0 = time.perf_counter()
 
@@ -426,8 +398,6 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
             n_assigned += len(unit["schedule_ids"])
             if room["building"] == unit["room_building"]:
                 same_building_count += len(unit["schedule_ids"])
-            else:
-                total_building_penalty += 100
 
             valid_costs = cost[r_idx][cost[r_idx] < BIG_COST]
             if len(valid_costs) > 1:
@@ -449,7 +419,6 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
         name="Hungarian (Kuhn-Munkres)",
         total_penalty=total,
         avg_penalty=avg,
-        building_penalty=total_building_penalty,
         n_assigned=n_assigned,
         n_unassigned=n_unassigned,
         n_different_building=n_assigned - same_building_count,

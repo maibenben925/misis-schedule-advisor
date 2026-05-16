@@ -7,24 +7,16 @@
 """
 
 import sqlite3
-import os
 
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
-
-EXCLUDED_BUILDINGS = ("Онлайн", "Каф. ИЯКТ", "Спортивный комплекс Беляево")
+from src.config import DB_PATH, EXCLUDED_BUILDINGS
+from src.utils import gc
 
 SLOTS_PER_ROOM = 84
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
 def fund_summary_with_transfers() -> dict:
     """Общая сводка по аудиторному фонду (с переносами, бронированиями, отменами)."""
-    conn = _connect()
+    conn = gc()
 
     n_rooms = conn.execute("""
         SELECT COUNT(*) as cnt FROM rooms WHERE building NOT IN (?,?,?)
@@ -86,7 +78,7 @@ def room_load_stats(n: int = 10) -> dict:
 
     Загрузка = занятые слоты / 84 возможных (6 дней × 7 пар × 2 недели).
     """
-    conn = _connect()
+    conn = gc()
 
     rows = conn.execute("""
         SELECT r.id, r.name, r.building, r.capacity, r.has_computers,
@@ -144,7 +136,7 @@ SLOTS = [
 
 def load_by_slot() -> list[dict]:
     """Загрузка аудиторий по парам: % занятых аудиторий для каждого (день, пара)."""
-    conn = _connect()
+    conn = gc()
 
     total_rooms = conn.execute("""
         SELECT COUNT(*) as cnt FROM rooms WHERE building NOT IN (?,?,?)

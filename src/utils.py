@@ -119,7 +119,7 @@ def get_buildings():
     return [x[0] for x in r]
 
 
-def get_transferred_schedule_ids():
+def _get_transferred_schedule_ids():
     c = gc()
     rows = c.execute("SELECT DISTINCT schedule_id FROM transfers").fetchall()
     c.close()
@@ -129,7 +129,7 @@ def get_transferred_schedule_ids():
 def get_affected(room_ids, sd, ed):
     if not room_ids or not sd or not ed:
         return [], {}
-    transferred_sids = get_transferred_schedule_ids()
+    transferred_sids = _get_transferred_schedule_ids()
     c = gc()
     ph = ",".join("?" for _ in room_ids)
     dates = []
