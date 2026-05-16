@@ -123,11 +123,11 @@ def render():
                 re = restored_entry["row"]
                 gn = ", ".join(sorted(set(restored_entry["group_names"])))
                 cell = (
-                    f'<div style="font-weight:bold;color:#5b21b6;font-size:14px;">🔄 {re["lesson_title"]}</div>'
+                    f'<div style="font-weight:bold;color:#EA580C;font-size:14px;">🔄 {re["lesson_title"]}</div>'
                     f'<div style="font-size:11px;">{re["lesson_type"]}<br>{gn}</div>'
-                    f'<div style="font-size:10px;color:#7c3aed;">Восстановлено</div>'
+                    f'<div style="font-size:10px;color:#EA580C;">Восстановлено</div>'
                 )
-                bg, bl = "#ede9fe", "3px solid #7c3aed"
+                bg, bl = "#ffedd5", "3px solid #EA580C"
             elif td:
                 groups_str = ", ".join(sorted(set(td.get("group_names", [td.get("group_name", "")]))))
                 lesson_type = td.get("lesson_type", "")
@@ -156,7 +156,7 @@ def render():
                     rc_gn = ", ".join(sorted(set(rc_info["group_names"]))) if rc_info else sc["gd"]
                     restore_str = ""
                     if rc and rc["restored_room_name"]:
-                        restore_str = f'<div style="font-size:10px;color:#5b21b6;">→ Восстановлено: {rc["restored_weekday"]} {rc["restored_start"]}–{rc["restored_end"]} ({rc["restored_room_name"]})</div>'
+                        restore_str = f'<div style="font-size:10px;color:#EA580C;">→ Восстановлено: {rc["restored_weekday"]} {rc["restored_start"]}–{rc["restored_end"]} ({rc["restored_room_name"]})</div>'
                     cell = (
                         f'<div style="font-weight:bold;color:#6b7280;text-decoration:line-through;font-size:14px;">🚫 {sc["lesson_title"]}</div>'
                         f'<div style="font-size:11px;color:#9ca3af;">{sc["lesson_type"]} | {rc_gn}</div>'
@@ -210,7 +210,7 @@ def render():
                 h += '<td style="border:1px solid #ccc;padding:4px;background:#f9f9f9;color:#ddd;text-align:center;">—</td>'
         h += "</tr>"
     h += "</table>"
-    st.markdown("🟦 Занятие | 🟩 Перенесено сюда | 🟥 Перенесено отсюда | 🟨 Мероприятие | 🟪 Восстановлено | ⬜ Отменено")
+    st.markdown("🟦 Занятие | 🟩 Перенесено сюда | 🟥 Перенесено отсюда | 🟨 Мероприятие | 🟧 Восстановлено | ⬜ Отменено")
     st.markdown(h, unsafe_allow_html=True)
 
 

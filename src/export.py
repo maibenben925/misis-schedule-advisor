@@ -252,8 +252,8 @@ def generate_excel(
     transferred_font = Font(color="065F46", size=10)
     cancelled_fill = PatternFill(start_color="F3F4F6", end_color="F3F4F6", fill_type="solid")
     cancelled_font = Font(color="999999", strikethrough=True, size=10)
-    restored_fill = PatternFill(start_color="EDE9FE", end_color="EDE9FE", fill_type="solid")
-    restored_font = Font(color="5B21B6", size=10)
+    restored_fill = PatternFill(start_color="FFEDD5", end_color="FFEDD5", fill_type="solid")
+    restored_font = Font(color="EA580C", size=10)
 
     wrap_align = Alignment(horizontal="left", vertical="top", wrap_text=True)
     center_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
