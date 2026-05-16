@@ -268,18 +268,6 @@ def get_transfers_for_date(sel_date):
     return r
 
 
-def get_bookings_for_date(room_id, sel_date):
-    """Бронирования для аудитории на КОНКРЕТНУЮ дату."""
-    c = gc()
-    r = c.execute("""
-        SELECT eb.id as bid,eb.event_name,eb.organizer,eb.attendees_count,eb.booking_date,
-               substr(eb.start,12,5) as st,substr(eb.end,12,5) as et
-        FROM event_bookings eb WHERE eb.room_id=? AND eb.booking_date=?
-    """, (room_id, str(sel_date))).fetchall()
-    c.close()
-    return r
-
-
 def check_booking_conflict(room_id, sel_date, s, e, exclude_bid=None):
     """Проверить конфликт по КОНКРЕТНОЙ дате (учитывает schedule, transfers, event_bookings)."""
     c = gc()

@@ -531,28 +531,6 @@ def _print_summary_table(all_results: list[tuple[str, str, list[StrategyResult]]
         print()
 
 
-def _get_n_lessons(building: str, weekday: str, week_type: str) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    cnt = conn.execute("""
-        SELECT COUNT(*) FROM schedule s
-        JOIN rooms r ON s.room_id = r.id
-        WHERE r.building = ? AND s.weekday = ? AND s.week_type = ?
-    """, (building, weekday, week_type)).fetchone()[0]
-    conn.close()
-    return cnt
-
-
-def _get_n_lessons_building(building: str) -> int:
-    conn = sqlite3.connect(DB_PATH)
-    cnt = conn.execute("""
-        SELECT COUNT(*) FROM schedule s
-        JOIN rooms r ON s.room_id = r.id
-        WHERE r.building = ?
-    """, (building,)).fetchone()[0]
-    conn.close()
-    return cnt
-
-
 def run_scenario_1() -> tuple[str, str, list[StrategyResult]]:
     title = "1. Единичное занятие"
     desc = "Перенос 1 занятия из корпуса А, Понедельник, upper"
