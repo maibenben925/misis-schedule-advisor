@@ -467,7 +467,7 @@ if page == "Инциденты":
 
     if st.button("Сгенерировать замены", type="primary", disabled=len(aff) == 0):
         with st.spinner("Оптимизация..."):
-            st.session_state["ir"] = mass_reallocate([r["id"] for r in aff])
+            st.session_state["ir"] = mass_reallocate([r["id"] for r in aff], excluded_room_ids=sids_in)
             st.session_state["ir_sd"] = sd
             st.session_state["ir_ed"] = ed
 

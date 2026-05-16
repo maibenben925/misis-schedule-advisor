@@ -215,7 +215,7 @@ def _build_super_scored_rooms(
 
 
 
-def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
+def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None = None) -> MassReallocationResult:
     """
     Оптимально перераспределить N занятий по свободным аудиториям.
 
@@ -227,6 +227,7 @@ def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
        b. Построить матрицу стоимостей и применить венгерский алгоритм.
     4. Объединить результаты.
     """
+    _closed = set(excluded_room_ids or [])
     if not schedule_ids:
         return MassReallocationResult()
 
@@ -312,13 +313,13 @@ def mass_reallocate(schedule_ids: list[int]) -> MassReallocationResult:
                     "group_name": ", ".join(l["group_name"] for l in group_lessons),
                 })
 
-        excluded_ids = [u["room_id"] for u in super_units]
+        excluded_ids = [u["room_id"] for u in super_units] + list(_closed)
+        excluded_set = set(excluded_ids)
 
-        # Свободные аудитории именно для этого слота
         free_rooms = get_free_rooms(
             weekday=weekday, start=start, end=end, week_type=week_type,
         )
-        free_rooms = [r for r in free_rooms if r["id"] not in excluded_ids]
+        free_rooms = [r for r in free_rooms if r["id"] not in excluded_set]
 
         n = len(super_units)
         m = len(free_rooms)
