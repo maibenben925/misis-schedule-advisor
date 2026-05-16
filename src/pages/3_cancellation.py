@@ -21,8 +21,8 @@ from src.cancellation import (
     mass_restore,
     mass_restore_preview,
     delete_cancellation,
-    get_all_teachers,
-    get_all_disciplines,
+    get_teachers_for_dates,
+    get_disciplines_for_dates,
 )
 
 
@@ -105,22 +105,27 @@ def render():
                     st.rerun()
 
         else:
-            ca, cb = st.columns(2)
-            with ca:
-                if ct == "По преподавателю":
-                    teachers = get_all_teachers()
-                    sel_teacher = st.selectbox("Преподаватель:", teachers, key="cn_teacher")
-                elif ct == "По дисциплине":
-                    disciplines = get_all_disciplines()
-                    sel_disc = st.selectbox("Дисциплина:", disciplines, key="cn_disc")
-            with cb:
-                today = date.today()
-                d1, d2 = st.columns(2)
-                with d1:
-                    cn_sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12), key="cn_sd")
-                with d2:
-                    cn_ed = st.date_input("Конец:", value=cn_sd + timedelta(days=13), min_value=cn_sd, key="cn_ed")
-                cn_reason = st.text_input("Причина:", value="Болезнь преподавателя", key="cn_reason")
+            today = date.today()
+            d1, d2 = st.columns(2)
+            with d1:
+                cn_sd = st.date_input("Начало:", value=today, min_value=date(2026, 1, 12), key="cn_sd")
+            with d2:
+                cn_ed = st.date_input("Конец:", value=cn_sd + timedelta(days=13), min_value=cn_sd, key="cn_ed")
+
+            if ct == "По преподавателю":
+                teachers = get_teachers_for_dates(cn_sd, cn_ed)
+                if not teachers:
+                    st.warning("Нет преподавателей с занятиями в выбранном диапазоне")
+                    return
+                sel_teacher = st.selectbox("Преподаватель:", teachers, key="cn_teacher")
+            elif ct == "По дисциплине":
+                disciplines = get_disciplines_for_dates(cn_sd, cn_ed)
+                if not disciplines:
+                    st.warning("Нет дисциплин с занятиями в выбранном диапазоне")
+                    return
+                sel_disc = st.selectbox("Дисциплина:", disciplines, key="cn_disc")
+
+            cn_reason = st.text_input("Причина:", value="Болезнь преподавателя", key="cn_reason")
 
             st.divider()
 

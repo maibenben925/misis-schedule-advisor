@@ -892,3 +892,53 @@ def get_all_disciplines() -> list[str]:
     rows = conn.execute("SELECT DISTINCT title FROM lessons ORDER BY title").fetchall()
     conn.close()
     return [r["title"] for r in rows]
+
+
+def get_teachers_for_dates(date_from: date, date_to: date) -> list[str]:
+    keys = set()
+    d = date_from
+    while d <= date_to:
+        keys.add((d2wd(d), d2wt(d)))
+        d += timedelta(days=1)
+    if not keys:
+        return []
+    cond = " OR ".join("(s.weekday=? AND s.week_type=?)" for _ in keys)
+    params = []
+    for wd, wt in keys:
+        params.extend([wd, wt])
+    conn = gc()
+    rows = conn.execute(f"""
+        SELECT DISTINCT l.teacher FROM schedule s
+        JOIN lessons l ON s.lesson_id = l.id
+        JOIN rooms r ON s.room_id = r.id
+        WHERE ({cond}) AND l.teacher IS NOT NULL AND l.teacher != ''
+        AND r.building NOT IN ('Онлайн', 'Каф. ИЯКТ', 'Спортивный комплекс Беляево')
+        ORDER BY l.teacher
+    """, params).fetchall()
+    conn.close()
+    return [r["teacher"] for r in rows]
+
+
+def get_disciplines_for_dates(date_from: date, date_to: date) -> list[str]:
+    keys = set()
+    d = date_from
+    while d <= date_to:
+        keys.add((d2wd(d), d2wt(d)))
+        d += timedelta(days=1)
+    if not keys:
+        return []
+    cond = " OR ".join("(s.weekday=? AND s.week_type=?)" for _ in keys)
+    params = []
+    for wd, wt in keys:
+        params.extend([wd, wt])
+    conn = gc()
+    rows = conn.execute(f"""
+        SELECT DISTINCT l.title FROM schedule s
+        JOIN lessons l ON s.lesson_id = l.id
+        JOIN rooms r ON s.room_id = r.id
+        WHERE ({cond})
+        AND r.building NOT IN ('Онлайн', 'Каф. ИЯКТ', 'Спортивный комплекс Беляево')
+        ORDER BY l.title
+    """, params).fetchall()
+    conn.close()
+    return [r["title"] for r in rows]
