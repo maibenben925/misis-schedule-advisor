@@ -144,6 +144,23 @@ def ensure_tables():
 ensure_tables()
 ensure_cancellations_table()
 
+c_init = gc()
+c_init.execute("""CREATE TABLE IF NOT EXISTS incidents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    reason TEXT DEFAULT '',
+    created_at TEXT DEFAULT (datetime('now'))
+)""")
+c_init.execute("""CREATE TABLE IF NOT EXISTS incident_rooms (
+    incident_id INTEGER NOT NULL,
+    room_id INTEGER NOT NULL,
+    FOREIGN KEY (incident_id) REFERENCES incidents(id),
+    PRIMARY KEY (incident_id, room_id)
+)""")
+c_init.commit()
+c_init.close()
+
 
 def get_rooms():
     c = gc()
@@ -300,7 +317,7 @@ def check_booking_conflict(room_id, sel_date, s, e, exclude_bid=None):
     return r3["cnt"] > 0
 
 
-def save_transfers(assignments, date_map, sd, ed):
+def save_transfers(assignments, date_map, sd, ed, excluded_room_ids=None):
     """Сохранить переносы с booking_date.
     Для каждого assignment создаём запись для КАЖДОЙ даты в диапазоне [sd, ed],
     у которой совпадает (weekday, week_type).
@@ -327,6 +344,13 @@ def save_transfers(assignments, date_map, sd, ed):
                  info["week_type"], info["lesson_id"], info["group_id"], "Инцидент", str(bdate)),
             )
             saved_count += 1
+
+    if excluded_room_ids:
+        c.execute("INSERT INTO incidents(start_date, end_date) VALUES(?, ?)", (str(sd), str(ed)))
+        incident_id = c.execute("SELECT last_insert_rowid()").fetchone()[0]
+        for rid in excluded_room_ids:
+            c.execute("INSERT INTO incident_rooms(incident_id, room_id) VALUES(?, ?)", (incident_id, rid))
+
     c.commit()
     c.close()
     return saved_count
@@ -467,9 +491,28 @@ if page == "Инциденты":
 
     if st.button("Сгенерировать замены", type="primary", disabled=len(aff) == 0):
         with st.spinner("Оптимизация..."):
-            st.session_state["ir"] = mass_reallocate([r["id"] for r in aff], excluded_room_ids=sids_in)
+            _excl = set(sids_in)
+            c_evac = gc()
+            evacuated = c_evac.execute("""
+                SELECT DISTINCT old_room_id FROM transfers
+                WHERE booking_date >= ? AND booking_date <= ?
+            """, (str(sd), str(ed))).fetchall()
+            c_evac.close()
+            for r in evacuated:
+                _excl.add(r["old_room_id"])
+            c_inc = gc()
+            incident_rooms = c_inc.execute("""
+                SELECT DISTINCT ir.room_id FROM incident_rooms ir
+                JOIN incidents i ON ir.incident_id = i.id
+                WHERE i.start_date <= ? AND i.end_date >= ?
+            """, (str(ed), str(sd))).fetchall()
+            c_inc.close()
+            for r in incident_rooms:
+                _excl.add(r["room_id"])
+            st.session_state["ir"] = mass_reallocate([r["id"] for r in aff], excluded_room_ids=list(_excl))
             st.session_state["ir_sd"] = sd
             st.session_state["ir_ed"] = ed
+            st.session_state["ir_excl"] = list(_excl)
 
     res = st.session_state.get("ir")
     if res:
@@ -577,7 +620,7 @@ if page == "Инциденты":
                         if st.button("Сохранить", type="primary", use_container_width=True):
                             ir_sd = st.session_state.get("ir_sd", sd)
                             ir_ed = st.session_state.get("ir_ed", ed)
-                            count = save_transfers(res.assignments, date_map, ir_sd, ir_ed)
+                            count = save_transfers(res.assignments, date_map, ir_sd, ir_ed, excluded_room_ids=list(st.session_state.get("ir_excl", [])))
                             st.session_state["confirm_save_transfers"] = False
                             st.session_state["saved_msg"] = f"Успешно сохранено **{count}** переносов!"
                             st.session_state["ir"] = None
