@@ -240,7 +240,8 @@ def fund_summary_with_transfers() -> dict:
     """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
 
     n_lessons = conn.execute("""
-        SELECT COUNT(*) as cnt FROM schedule s
+        SELECT COUNT(DISTINCT s.room_id || s.weekday || s.start || s.week_type) as cnt
+        FROM schedule s
         JOIN rooms r ON s.room_id = r.id
         WHERE r.building NOT IN (?,?,?)
     """, EXCLUDED_BUILDINGS).fetchone()["cnt"]

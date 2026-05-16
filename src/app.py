@@ -1257,14 +1257,6 @@ elif page == "Статистика":
                 "Загрузка": f'{r["load_pct"]}%',
             } for r in rl["most_loaded"]])
             st.dataframe(ml_df, width="stretch", hide_index=True)
-
-            if rl["most_loaded"][0]["load_pct"] > 80:
-                top = rl["most_loaded"][0]
-                st.warning(
-                    f"**Вывод:** Аудитория **{top['name']}** (корп. {top['building']}) "
-                    f"загружена на {top['load_pct']}% — при инцидентах её заменить почти невозможно. "
-                    f"Рекомендуется рассмотреть перераспределение нагрузки."
-                )
         else:
             st.info("Нет данных по загруженности.")
 
@@ -1279,18 +1271,6 @@ elif page == "Статистика":
                 "Загрузка": f'{r["load_pct"]}%',
             } for r in rl["least_loaded"]])
             st.dataframe(ll_df, width="stretch", hide_index=True)
-
-            if rl["empty_rooms"] > 0:
-                st.info(
-                    f"**Вывод:** {rl['empty_rooms']} аудиторий не имеют ни одного занятия в расписании — "
-                    f"их можно использовать для переноса или бронирования без конфликтов."
-                )
-            elif rl["least_loaded"][0]["load_pct"] < 20:
-                bot = rl["least_loaded"][0]
-                st.info(
-                    f"**Вывод:** Аудитория **{bot['name']}** (корп. {bot['building']}) "
-                    f"загружена всего на {bot['load_pct']}% — большой резерв для размещения дополнительных занятий."
-                )
         else:
             st.info("Нет данных по загруженности.")
 
@@ -1331,15 +1311,6 @@ elif page == "Статистика":
             header += "</tr>"
         header += "</table>"
         st.markdown(header, unsafe_allow_html=True)
-
-        busy_slots = [(r["weekday"], r["slot"], r["load_pct"]) for r in ls if r["load_pct"] >= 70]
-        free_slots = [(r["weekday"], r["slot"], r["load_pct"]) for r in ls if r["load_pct"] < 20]
-        if busy_slots:
-            top_busy = max(busy_slots, key=lambda x: x[2])
-            st.warning(f"**Пиковая нагрузка:** {top_busy[1]}, {top_busy[0]} — {top_busy[2]}% аудиторий занято.")
-        if free_slots:
-            top_free = min(free_slots, key=lambda x: x[2])
-            st.info(f"**Лучшее окно:** {top_free[1]}, {top_free[0]} — занято всего {top_free[2]}% аудиторий. Оптимально для мероприятий и переносов.")
     else:
         st.info("Нет данных.")
 
