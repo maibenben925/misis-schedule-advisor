@@ -184,9 +184,10 @@ def get_transferred_schedule_ids():
 
 
 def get_affected(room_ids, sd, ed):
-    """Найти занятия в аудиториях за период КОНКРЕТНЫХ дат."""
+    """Найти занятия в аудиториях за период КОНКРЕТНЫХ дат.
+    Также находит занятия, перенесённые IN в эти аудитории (повторный инцидент)."""
     if not room_ids or not sd or not ed:
-        return []
+        return [], {}
     transferred_sids = get_transferred_schedule_ids()
     c = gc()
     ph = ",".join("?" for _ in room_ids)
@@ -196,7 +197,8 @@ def get_affected(room_ids, sd, ed):
         dates.append((d2wd(d), d2wt(d), d))
         d += timedelta(days=1)
     cond = " OR ".join("(s.weekday=? AND s.week_type=?)" for _ in dates)
-    q = f"""SELECT s.id,r.name as room_name,s.weekday,s.start,s.end,s.week_type,
+    q = f"""SELECT s.id,r.name as room_name,r.id as room_id,r.building as room_building,r.floor as room_floor,
+            s.weekday,s.start,s.end,s.week_type,
             l.id as lesson_id,l.title as lesson_title,l.lesson_type,
             l.needs_projector,l.needs_computers,
             g.id as group_id,g.name as group_name,g.students_count
@@ -207,8 +209,28 @@ def get_affected(room_ids, sd, ed):
     for wd, wt, _ in dates:
         params.extend([wd, wt])
     rows = c.execute(q, params).fetchall()
+
+    date_strs = [str(d) for _, _, d in dates]
+    tph = ",".join("?" for _ in room_ids)
+    dph = ",".join("?" for _ in date_strs)
+    transferred_in = c.execute(f"""
+        SELECT t.schedule_id, t.new_room_id as room_id,
+               nr.name as room_name, nr.building as room_building, nr.floor as room_floor,
+               s.weekday, s.start, s.end, s.week_type,
+               l.id as lesson_id, l.title as lesson_title, l.lesson_type,
+               l.needs_projector, l.needs_computers,
+               g.id as group_id, g.name as group_name, g.students_count
+        FROM transfers t
+        JOIN schedule s ON t.schedule_id = s.id
+        JOIN rooms nr ON t.new_room_id = nr.id
+        JOIN lessons l ON s.lesson_id = l.id
+        JOIN groups g ON s.group_id = g.id
+        WHERE t.new_room_id IN ({tph}) AND t.booking_date IN ({dph})
+    """, list(room_ids) + date_strs).fetchall()
+
     c.close()
     result = []
+    current_room_overrides = {}
     for r in rows:
         if r["id"] in transferred_sids:
             continue
@@ -216,7 +238,19 @@ def get_affected(room_ids, sd, ed):
             if r["weekday"] == wd and r["week_type"] == wt:
                 result.append({**dict(r), "booking_date": str(d)})
                 break
-    return result
+    for r in transferred_in:
+        sid = r["schedule_id"]
+        if sid not in {x["id"] for x in result}:
+            for wd, wt, d in dates:
+                if r["weekday"] == wd and r["week_type"] == wt:
+                    result.append({**dict(r), "id": sid, "booking_date": str(d)})
+                    current_room_overrides[sid] = {
+                        "room_id": r["room_id"],
+                        "room_building": r["room_building"],
+                        "room_floor": r["room_floor"],
+                    }
+                    break
+    return result, current_room_overrides
 
 
 def get_sched_for_date(sel_date):
@@ -305,14 +339,14 @@ def check_booking_conflict(room_id, sel_date, s, e, exclude_bid=None):
     return r3["cnt"] > 0
 
 
-def save_transfers(assignments, date_map, sd, ed, excluded_room_ids=None):
+def save_transfers(assignments, date_map, sd, ed, excluded_room_ids=None, current_room_overrides=None):
     """Сохранить переносы с booking_date.
     Для каждого assignment создаём запись для КАЖДОЙ даты в диапазоне [sd, ed],
     у которой совпадает (weekday, week_type).
     date_map: dict schedule_id -> booking_date (первая найденная дата)
     """
-    # Собираем все даты в диапазоне, сгруппированные по (weekday, week_type)
-    date_groups = {}  # (weekday, week_type) -> [date, ...]
+    _room_overrides = current_room_overrides or {}
+    date_groups = {}
     d = sd
     while d <= ed:
         key = (d2wd(d), d2wt(d))
@@ -325,10 +359,17 @@ def save_transfers(assignments, date_map, sd, ed, excluded_room_ids=None):
         info = get_lesson_info(sid)
         key = (info["weekday"], info["week_type"])
         dates_for_this = date_groups.get(key, [])
+        override = _room_overrides.get(sid)
+        old_room_id = override["room_id"] if override else info["room_id"]
         for bdate in dates_for_this:
+            if override:
+                c.execute(
+                    "DELETE FROM transfers WHERE schedule_id=? AND booking_date=? AND weekday=? AND start=?",
+                    (sid, str(bdate), info["weekday"], info["start"]),
+                )
             c.execute(
                 "INSERT INTO transfers(schedule_id,old_room_id,new_room_id,weekday,start,end,week_type,lesson_id,group_id,reason,booking_date) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
-                (sid, info["room_id"], sr.room_id, info["weekday"], info["start"], info["end"],
+                (sid, old_room_id, sr.room_id, info["weekday"], info["start"], info["end"],
                  info["week_type"], info["lesson_id"], info["group_id"], "Инцидент", str(bdate)),
             )
             saved_count += 1
@@ -475,7 +516,7 @@ if page == "Инциденты":
             st.rerun()
         st.divider()
 
-    aff = get_affected(sids_in, sd, ed) if sids_in else []
+    aff, current_room_overrides = get_affected(sids_in, sd, ed) if sids_in else ([], {})
 
     if st.button("Сгенерировать замены", type="primary", disabled=len(aff) == 0):
         with st.spinner("Оптимизация..."):
@@ -497,10 +538,11 @@ if page == "Инциденты":
             c_inc.close()
             for r in incident_rooms:
                 _excl.add(r["room_id"])
-            st.session_state["ir"] = mass_reallocate([r["id"] for r in aff], excluded_room_ids=list(_excl))
+            st.session_state["ir"] = mass_reallocate([r["id"] for r in aff], excluded_room_ids=list(_excl), current_room_overrides=current_room_overrides)
             st.session_state["ir_sd"] = sd
             st.session_state["ir_ed"] = ed
             st.session_state["ir_excl"] = list(_excl)
+            st.session_state["ir_overrides"] = current_room_overrides
 
     res = st.session_state.get("ir")
     if res:
@@ -608,7 +650,7 @@ if page == "Инциденты":
                         if st.button("Сохранить", type="primary", use_container_width=True):
                             ir_sd = st.session_state.get("ir_sd", sd)
                             ir_ed = st.session_state.get("ir_ed", ed)
-                            count = save_transfers(res.assignments, date_map, ir_sd, ir_ed, excluded_room_ids=list(st.session_state.get("ir_excl", [])))
+                            count = save_transfers(res.assignments, date_map, ir_sd, ir_ed, excluded_room_ids=list(st.session_state.get("ir_excl", [])), current_room_overrides=st.session_state.get("ir_overrides", {}))
                             st.session_state["confirm_save_transfers"] = False
                             st.session_state["saved_msg"] = f"Успешно сохранено **{count}** переносов!"
                             st.session_state["ir"] = None

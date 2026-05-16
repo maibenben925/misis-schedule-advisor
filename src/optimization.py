@@ -160,7 +160,8 @@ def _build_super_scored_rooms(
 
 
 
-def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None = None) -> MassReallocationResult:
+def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None = None,
+                    current_room_overrides: dict[int, dict] | None = None) -> MassReallocationResult:
     """
     Оптимально перераспределить N занятий по свободным аудиториям.
 
@@ -173,6 +174,7 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
     4. Объединить результаты.
     """
     _closed = set(excluded_room_ids or [])
+    _room_overrides = current_room_overrides or {}
     if not schedule_ids:
         return MassReallocationResult()
 
@@ -188,9 +190,9 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
             "students_count": info["students_count"],
             "needs_projector": bool(info["needs_projector"]),
             "needs_computers": bool(info["needs_computers"]),
-            "room_building": info["room_building"],
-            "room_floor": info["room_floor"],
-            "room_id": info["room_id"],
+            "room_building": _room_overrides.get(sid, {}).get("room_building", info["room_building"]),
+            "room_floor": _room_overrides.get(sid, {}).get("room_floor", info["room_floor"]),
+            "room_id": _room_overrides.get(sid, {}).get("room_id", info["room_id"]),
             "weekday": info["weekday"],
             "start": info["start"],
             "end": info["end"],
