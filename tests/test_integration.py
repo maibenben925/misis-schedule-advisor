@@ -394,7 +394,105 @@ conn.close()
 
 
 # ═══════════════════════════════════════════════════════
-# 8. Pipeline (build_db.py)
+# 8. Stats
+# ═══════════════════════════════════════════════════════
+print("\n═══ 8. Stats ═══")
+
+from src.stats import fund_summary_with_transfers, room_load_stats, pc_utilization, capacity_demand, load_by_slot
+
+fs = fund_summary_with_transfers()
+check("fund_summary: rooms > 0", fs["rooms"] > 0)
+check("fund_summary: buildings > 0", fs["buildings"] > 0)
+check("fund_summary: groups > 0", fs["groups"] > 0)
+check("fund_summary: avg_capacity > 0", fs["avg_capacity"] > 0)
+check("fund_summary: total_slots > 0", fs["total_slots"] > 0)
+check("fund_summary: occupied_slots > 0", fs["occupied_slots"] > 0)
+check("fund_summary: load_pct > 0", fs["load_pct"] > 0)
+check("fund_summary: occupied <= total", fs["occupied_slots"] <= fs["total_slots"])
+check("fund_summary: load_pct <= 100", fs["load_pct"] <= 100)
+check("fund_summary: avg_capacity = total_capacity / rooms",
+      fs["avg_capacity"] == round(
+          sqlite3.connect(str(DB_PATH)).execute(
+              "SELECT SUM(capacity) FROM rooms WHERE building NOT IN ('Онлайн','Каф. ИЯКТ','Спортивный комплекс Беляево')"
+          ).fetchone()[0] / fs["rooms"]
+      ))
+
+rl = room_load_stats()
+check("room_load_stats: most_loaded — список", isinstance(rl["most_loaded"], list))
+check("room_load_stats: least_loaded — список", isinstance(rl["least_loaded"], list))
+check("room_load_stats: avg_load > 0", rl["avg_load"] > 0)
+check("room_load_stats: total_rooms == fund_summary rooms", rl["total_rooms"] == fs["rooms"])
+if rl["most_loaded"]:
+    check("room_load_stats: most_loaded[0] has keys", all(k in rl["most_loaded"][0] for k in ["name", "load_pct", "occupied_slots"]))
+    check("room_load_stats: most <= 100%", rl["most_loaded"][0]["load_pct"] <= 100)
+if rl["least_loaded"]:
+    check("room_load_stats: least <= most", rl["least_loaded"][0]["load_pct"] <= rl["most_loaded"][0]["load_pct"])
+
+pc = pc_utilization()
+check("pc_utilization: rooms_total >= 0", pc["rooms_total"] >= 0)
+check("pc_utilization: slots_for_comp + slots_for_noncomp <= 84 * rooms_total",
+      pc["slots_for_comp"] + pc["slots_for_noncomp"] <= 84 * max(pc["rooms_total"], 1))
+check("pc_utilization: wasted_rooms — список", isinstance(pc["wasted_rooms"], list))
+
+cd = capacity_demand()
+check("capacity_demand: возвращает список", isinstance(cd, list))
+check("capacity_demand: > 0 записей", len(cd) > 0)
+if cd:
+    check("capacity_demand: каждая запись имеет нужные ключи",
+          all(k in cd[0] for k in ["range", "rooms", "total_slots", "occupied_slots", "load_pct"]))
+
+ls = load_by_slot()
+check("load_by_slot: возвращает список", isinstance(ls, list))
+check("load_by_slot: 42 записи (6 дней × 7 пар)", len(ls) == 42)
+if ls:
+    check("load_by_slot: каждая запись имеет нужные ключи",
+          all(k in ls[0] for k in ["weekday", "slot", "occupied", "total", "load_pct"]))
+    check("load_by_slot: все load_pct ∈ [0, 100]",
+          all(0 <= r["load_pct"] <= 100 for r in ls))
+
+
+# ═══════════════════════════════════════════════════════
+# 9. Export
+# ═══════════════════════════════════════════════════════
+print("\n═══ 9. Export ═══")
+
+from src.export import get_all_groups, get_schedule_for_group, get_schedule_for_teacher, generate_excel
+
+groups = get_all_groups()
+check("get_all_groups: возвращает список", isinstance(groups, list))
+check("get_all_groups: > 0 групп", len(groups) > 0)
+
+if groups:
+    first_group = groups[0]
+    sched = get_schedule_for_group(first_group)
+    check("get_schedule_for_group: возвращает dict", isinstance(sched, dict))
+    check("get_schedule_for_group: ключи — Верхняя/Нижняя неделя",
+          set(sched.keys()) == {"Верхняя неделя", "Нижняя неделя"})
+
+    xlsx = generate_excel(sched, first_group)
+    check("generate_excel: возвращает bytes", isinstance(xlsx, bytes))
+    check("generate_excel: > 0 байт", len(xlsx) > 0)
+
+conn = sqlite3.connect(str(DB_PATH))
+conn.row_factory = sqlite3.Row
+teacher_row = conn.execute("""
+    SELECT DISTINCT l.teacher FROM lessons l WHERE l.teacher IS NOT NULL AND l.teacher != '' LIMIT 1
+""").fetchone()
+conn.close()
+
+if teacher_row and teacher_row["teacher"]:
+    sched_t = get_schedule_for_teacher(teacher_row["teacher"])
+    check("get_schedule_for_teacher: возвращает dict", isinstance(sched_t, dict))
+    check("get_schedule_for_teacher: ключи — Верхняя/Нижняя неделя",
+          set(sched_t.keys()) == {"Верхняя неделя", "Нижняя неделя"})
+
+    xlsx_t = generate_excel(sched_t, teacher_row["teacher"])
+    check("generate_excel(teacher): возвращает bytes", isinstance(xlsx_t, bytes))
+    check("generate_excel(teacher): > 0 байт", len(xlsx_t) > 0)
+
+
+# ═══════════════════════════════════════════════════════
+# 10. Pipeline (build_db.py)
 # ═══════════════════════════════════════════════════════
 print("\n═══ 8. Pipeline (build_db.py) ═══")
 
