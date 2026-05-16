@@ -832,11 +832,8 @@ elif page == "Отмена занятий":
             today = date.today()
             cn_single_date = st.date_input("Дата отмены:", value=today, min_value=date(2026, 1, 12), key="cn_single_date")
 
-            _WEEKDAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота", "Воскресенье"]
-            _BASE_MONDAY = date(2026, 1, 12)
-            wd = _WEEKDAYS[cn_single_date.weekday()]
-            diff = (cn_single_date - _BASE_MONDAY).days
-            wt = "upper" if (diff // 7) % 2 == 0 else "lower"
+            wd = d2wd(cn_single_date)
+            wt = d2wt(cn_single_date)
 
             c = gc()
             rows = c.execute("""
