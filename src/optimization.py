@@ -20,7 +20,6 @@ from scipy.optimize import linear_sum_assignment
 from .search_engine import (
     get_free_rooms,
     get_lesson_info,
-    filter_rooms,
 )
 from .scoring import calculate_penalty, ScoredRoom
 
@@ -62,60 +61,6 @@ def _get_unassign_reason(unit: dict, free_rooms: list) -> str:
     n = len(comp_ok)
     suffix = f" (из {n})" if n > 5 else ""
     return f"Подходят: {names}{suffix} — заняты другими занятиями в этом слоте"
-
-
-def _build_cost_matrix(
-    lessons: list[dict],
-    free_rooms: list,
-) -> tuple[np.ndarray, dict, dict]:
-    """
-    Построить матрицу стоимостей N×M.
-
-    lessons: список dicts с инфой о занятиях
-    free_rooms: список sqlite3.Row свободных аудиторий
-
-    Returns:
-        cost_matrix: np.ndarray[N, M]
-        lesson_idx_map: {schedule_id: row_index}
-        room_idx_map: {room_id: col_index}
-    """
-    n = len(lessons)
-    m = len(free_rooms)
-
-    cost = np.full((n, m), BIG_COST, dtype=np.float64)
-
-    lesson_idx_map = {}
-    room_idx_map = {}
-
-    for i, lesson in enumerate(lessons):
-        lesson_idx_map[lesson["schedule_id"]] = i
-
-        for j, room in enumerate(free_rooms):
-            room_idx_map[room["id"]] = j
-
-            # Hard constraints: проверяем вместимость и оборудование
-            if room["capacity"] < lesson["students_count"]:
-                continue
-            if lesson["needs_projector"] and not room["has_projector"]:
-                continue
-            if lesson["needs_computers"] and not room["has_computers"]:
-                continue
-
-            # Cost = penalty из scoring
-            cost[i, j] = calculate_penalty(
-                original_building=lesson["room_building"],
-                original_floor=lesson["room_floor"],
-                alt_building=room["building"],
-                alt_floor=room["floor"],
-                alt_capacity=room["capacity"],
-                students_count=lesson["students_count"],
-                needs_projector=lesson["needs_projector"],
-                needs_computers=lesson["needs_computers"],
-                alt_has_projector=room["has_projector"],
-                alt_has_computers=room["has_computers"],
-            )
-
-    return cost, lesson_idx_map, room_idx_map
 
 
 def _build_super_cost_matrix(

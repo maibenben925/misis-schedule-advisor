@@ -12,15 +12,13 @@
 from __future__ import annotations
 
 import re
-import csv
 import json
 import random
 import sqlite3
 import argparse
 import sys
-import os
 from pathlib import Path
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from collections import defaultdict
 
 import requests

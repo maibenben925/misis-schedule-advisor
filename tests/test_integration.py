@@ -5,9 +5,9 @@
 Запуск:  python tests/test_integration.py
 """
 
-import sys, os, json, sqlite3, tempfile
+import sys, sqlite3
 from pathlib import Path
-from datetime import date, timedelta, datetime as dt
+from datetime import date
 
 sys.stdout.reconfigure(encoding='utf-8')
 PROJECT = Path(__file__).resolve().parent.parent

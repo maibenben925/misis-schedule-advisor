@@ -159,7 +159,7 @@ if __name__ == "__main__":
     import sqlite3
     import os
 
-    DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "schedule.db")
+    DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "schedule.db")
 
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -167,7 +167,7 @@ if __name__ == "__main__":
     conn.close()
 
     sid = random.choice(sample_ids)
-    from search_engine import get_lesson_info
+    from .search_engine import get_lesson_info
     info = get_lesson_info(sid)
 
     print(f"=== Занятие: schedule_id={sid} ===")
