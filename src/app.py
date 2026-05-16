@@ -563,17 +563,32 @@ if page == "Инциденты":
                 }
                 rd.append(row)
             st.dataframe(pd.DataFrame(rd), width="stretch", hide_index=True)
-            st.caption(f"«Требования»: кол-во студентов, проектор, компьютеры. «Дни» — первая дата и количество затронутых дней.")
+            st.caption(f"«Требования»: кол-во студентов, проектор, компьютеры. «Дни» — первая дата попадания в верхнюю и нижнюю неделю.")
             st.caption(f"Формула штрафа: разные корпуса +100, этаж ×5, лишние места ×1, ненужные компьютеры +10, ненужный проектор +5")
             if st.button("Сохранить замены", type="primary"):
-                ir_sd = st.session_state.get("ir_sd", sd)
-                ir_ed = st.session_state.get("ir_ed", ed)
-                count = save_transfers(res.assignments, date_map, ir_sd, ir_ed)
-                st.session_state["saved_msg"] = f"Успешно сохранено **{count}** переносов!"
-                st.session_state["ir"] = None
-                st.session_state["ir_sd"] = None
-                st.session_state["ir_ed"] = None
-                st.rerun()
+                st.session_state["confirm_save_transfers"] = True
+
+            if st.session_state.get("confirm_save_transfers"):
+                @st.dialog("Подтверждение сохранения")
+                def _confirm_save_transfers():
+                    st.warning("Сохранить переносы в расписание?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("Сохранить", type="primary", use_container_width=True):
+                            ir_sd = st.session_state.get("ir_sd", sd)
+                            ir_ed = st.session_state.get("ir_ed", ed)
+                            count = save_transfers(res.assignments, date_map, ir_sd, ir_ed)
+                            st.session_state["confirm_save_transfers"] = False
+                            st.session_state["saved_msg"] = f"Успешно сохранено **{count}** переносов!"
+                            st.session_state["ir"] = None
+                            st.session_state["ir_sd"] = None
+                            st.session_state["ir_ed"] = None
+                            st.rerun()
+                    with c2:
+                        if st.button("Отмена", use_container_width=True):
+                            st.session_state["confirm_save_transfers"] = False
+                            st.rerun()
+                _confirm_save_transfers()
         if res.unassigned:
             st.subheader("Не хватило")
 
@@ -788,9 +803,24 @@ elif page == "Отмена занятий":
                     st.dataframe(cn_df, width="stretch", hide_index=True)
 
                     if st.button("Подтвердить отмену", type="primary", key="cn_apply_btn_single"):
-                        count = apply_cancels(previews, cn_reason)
-                        st.session_state["cn_single_msg"] = f"Отменено **{count}** занятий"
-                        st.rerun()
+                        st.session_state["confirm_cancel_single"] = True
+
+                    if st.session_state.get("confirm_cancel_single"):
+                        @st.dialog("Подтверждение отмены")
+                        def _confirm_cancel_single():
+                            st.warning("Подтвердить отмену занятия?")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("Отменить", type="primary", use_container_width=True):
+                                    count = apply_cancels(previews, cn_reason)
+                                    st.session_state["confirm_cancel_single"] = False
+                                    st.session_state["cn_single_msg"] = f"Отменено **{count}** занятий"
+                                    st.rerun()
+                            with c2:
+                                if st.button("Отмена", use_container_width=True):
+                                    st.session_state["confirm_cancel_single"] = False
+                                    st.rerun()
+                        _confirm_cancel_single()
 
             if st.session_state.get("cn_single_msg"):
                 st.success(st.session_state["cn_single_msg"])
@@ -841,10 +871,25 @@ elif page == "Отмена занятий":
                 st.dataframe(cn_df, width="stretch", hide_index=True)
 
                 if st.button("Подтвердить отмену", type="primary", key="cn_apply_btn"):
-                    count = apply_cancels(previews, cn_reason)
-                    st.session_state["cn_previews"] = []
-                    st.session_state["cn_msg"] = f"Отменено **{count}** занятий"
-                    st.rerun()
+                    st.session_state["confirm_cancel_multi"] = True
+
+                if st.session_state.get("confirm_cancel_multi"):
+                    @st.dialog("Подтверждение отмены")
+                    def _confirm_cancel_multi():
+                        st.warning(f"Подтвердить отмену **{len(previews)}** занятий?")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("Отменить", type="primary", use_container_width=True):
+                                count = apply_cancels(previews, cn_reason)
+                                st.session_state["confirm_cancel_multi"] = False
+                                st.session_state["cn_previews"] = []
+                                st.session_state["cn_msg"] = f"Отменено **{count}** занятий"
+                                st.rerun()
+                        with c2:
+                            if st.button("Отмена", use_container_width=True):
+                                st.session_state["confirm_cancel_multi"] = False
+                                st.rerun()
+                    _confirm_cancel_multi()
 
             if st.session_state.get("cn_msg"):
                 st.success(st.session_state["cn_msg"])
@@ -919,12 +964,27 @@ elif page == "Отмена занятий":
                                 st.write(f"  • {p['lesson_title']} ({p['group_names']}) — {p['orig_weekday']} {p['orig_start']}")
 
                         if has_slots and st.button("Подтвердить восстановление", type="primary", key="rs_mass_confirm_btn"):
-                            cids_to_restore = [p["cancel_id"] for p in has_slots]
-                            with st.spinner("Восстановление..."):
-                                result = mass_restore(cids_to_restore)
-                            st.session_state["rs_mass_result"] = result
-                            st.session_state["rs_mass_pv"] = None
-                            st.rerun()
+                            st.session_state["confirm_restore"] = True
+
+                        if st.session_state.get("confirm_restore"):
+                            @st.dialog("Подтверждение восстановления")
+                            def _confirm_restore():
+                                st.warning(f"Восстановить **{len(has_slots)}** занятий?")
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    if st.button("Восстановить", type="primary", use_container_width=True):
+                                        cids_to_restore = [p["cancel_id"] for p in has_slots]
+                                        with st.spinner("Восстановление..."):
+                                            result = mass_restore(cids_to_restore)
+                                        st.session_state["confirm_restore"] = False
+                                        st.session_state["rs_mass_result"] = result
+                                        st.session_state["rs_mass_pv"] = None
+                                        st.rerun()
+                                with c2:
+                                    if st.button("Отмена", use_container_width=True):
+                                        st.session_state["confirm_restore"] = False
+                                        st.rerun()
+                            _confirm_restore()
 
                 if st.session_state.get("rs_mass_result"):
                     mr = st.session_state["rs_mass_result"]
