@@ -96,7 +96,7 @@ def render():
     h = '<table style="border-collapse:collapse;width:100%;font-size:12px;">'
     h += '<tr><th style="border:1px solid #ccc;padding:4px;background:#f0f0f0;position:sticky;left:0;z-index:2;">Аудитория</th>'
     for sl in SLOTS:
-        h += f'<th style="border:1px solid #ccc;padding:4px;background:#f0f0f0;text-align:center;font-size:11px;">{sl["name"]}<br>{sl["start"]}–{sl["end"]}</th>'
+        h += f'<th style="border:1px solid #ccc;padding:4px;background:#f0f0f0;text-align:center;font-size:13px;">{sl["name"]}<br>{sl["start"]}–{sl["end"]}</th>'
     h += "</tr>"
 
     for rm in rms:
@@ -107,7 +107,7 @@ def render():
         if rm["has_computers"]:
             eq_parts.append("💻")
         eq_str = " ".join(eq_parts) if eq_parts else "—"
-        h += f'<tr><td style="border:1px solid #ccc;padding:4px;font-weight:bold;background:#fafafa;position:sticky;left:0;font-size:12px;">{rm["name"]}<br><small>{cap} мест {eq_str}</small></td>'
+        h += f'<tr><td style="border:1px solid #ccc;padding:4px;font-weight:bold;background:#fafafa;position:sticky;left:0;font-size:14px;">{rm["name"]}<br><small>{cap} мест {eq_str}</small></td>'
         for sl in SLOTS:
             s, e = sl["start"], sl["end"]
             sk = (rm["id"], s)
@@ -123,9 +123,9 @@ def render():
                 re = restored_entry["row"]
                 gn = ", ".join(sorted(set(restored_entry["group_names"])))
                 cell = (
-                    f'<div style="font-weight:bold;color:#5b21b6;">🔄 {re["lesson_title"]}</div>'
-                    f'<div style="font-size:9px;">{re["lesson_type"]}<br>{gn}</div>'
-                    f'<div style="font-size:8px;color:#7c3aed;">Восстановлено</div>'
+                    f'<div style="font-weight:bold;color:#5b21b6;font-size:14px;">🔄 {re["lesson_title"]}</div>'
+                    f'<div style="font-size:11px;">{re["lesson_type"]}<br>{gn}</div>'
+                    f'<div style="font-size:10px;color:#7c3aed;">Восстановлено</div>'
                 )
                 bg, bl = "#ede9fe", "3px solid #7c3aed"
             elif td:
@@ -133,21 +133,21 @@ def render():
                 lesson_type = td.get("lesson_type", "")
                 type_label = f"<small>{lesson_type}</small><br>" if lesson_type else ""
                 cell = (
-                    f'<div style="font-weight:bold;color:#065f46;">✅ {td["lesson_title"]}</div>'
+                    f'<div style="font-weight:bold;color:#065f46;font-size:14px;">✅ {td["lesson_title"]}</div>'
                     f'{type_label}'
-                    f'<div style="font-size:10px;">{groups_str}</div>'
-                    f'<div style="font-size:9px;color:#6b7280;">← {td["old_room"]}</div>'
+                    f'<div style="font-size:11px;">{groups_str}</div>'
+                    f'<div style="font-size:10px;color:#6b7280;">← {td["old_room"]}</div>'
                 )
                 bg, bl = "#d1fae5", "3px solid #059669"
             elif sc:
                 if any(x in cancel_sids for x in sc["sids"]):
                     cn_info = cancel_map.get((rm["id"], s))
-                    reason_str = f'<div style="font-size:8px;color:#6b7280;">{cn_info["reason"]}</div>' if cn_info and cn_info["reason"] else ""
+                    reason_str = f'<div style="font-size:10px;color:#6b7280;">{cn_info["reason"]}</div>' if cn_info and cn_info["reason"] else ""
                     cell = (
-                        f'<div style="font-weight:bold;color:#6b7280;text-decoration:line-through;">🚫 {sc["lesson_title"]}</div>'
-                        f'<div style="font-size:9px;color:#9ca3af;">{sc["lesson_type"]} | {sc["gd"]}</div>'
+                        f'<div style="font-weight:bold;color:#6b7280;text-decoration:line-through;font-size:14px;">🚫 {sc["lesson_title"]}</div>'
+                        f'<div style="font-size:11px;color:#9ca3af;">{sc["lesson_type"]} | {sc["gd"]}</div>'
                         f'{reason_str}'
-                        f'<div style="font-size:8px;color:#9ca3af;">ОТМЕНЕНО</div>'
+                        f'<div style="font-size:10px;color:#9ca3af;">ОТМЕНЕНО</div>'
                     )
                     bg, bl = "#f3f4f6", "3px solid #9ca3af"
                 elif any(x in restored_cancel_sids for x in sc["sids"]):
@@ -156,12 +156,12 @@ def render():
                     rc_gn = ", ".join(sorted(set(rc_info["group_names"]))) if rc_info else sc["gd"]
                     restore_str = ""
                     if rc and rc["restored_room_name"]:
-                        restore_str = f'<div style="font-size:8px;color:#5b21b6;">→ Восстановлено: {rc["restored_weekday"]} {rc["restored_start"]}–{rc["restored_end"]} ({rc["restored_room_name"]})</div>'
+                        restore_str = f'<div style="font-size:10px;color:#5b21b6;">→ Восстановлено: {rc["restored_weekday"]} {rc["restored_start"]}–{rc["restored_end"]} ({rc["restored_room_name"]})</div>'
                     cell = (
-                        f'<div style="font-weight:bold;color:#6b7280;text-decoration:line-through;">🚫 {sc["lesson_title"]}</div>'
-                        f'<div style="font-size:9px;color:#9ca3af;">{sc["lesson_type"]} | {rc_gn}</div>'
+                        f'<div style="font-weight:bold;color:#6b7280;text-decoration:line-through;font-size:14px;">🚫 {sc["lesson_title"]}</div>'
+                        f'<div style="font-size:11px;color:#9ca3af;">{sc["lesson_type"]} | {rc_gn}</div>'
                         f'{restore_str}'
-                        f'<div style="font-size:8px;color:#9ca3af;">ОТМЕНЕНО</div>'
+                        f'<div style="font-size:10px;color:#9ca3af;">ОТМЕНЕНО</div>'
                     )
                     bg, bl = "#f3f4f6", "3px solid #9ca3af"
                 elif any(x in tsids for x in sc["sids"]):
@@ -177,16 +177,16 @@ def render():
                         if mt:
                             break
                     cell = (
-                        f'<div style="font-weight:bold;color:#991b1b;text-decoration:line-through;">❌ {sc["lesson_title"]}</div>'
-                        f'<div style="font-size:9px;">{sc["lesson_type"]} | {sc["gd"]}</div>'
-                        f'<div style="font-size:9px;color:#dc2626;">→ {mt}</div>'
+                        f'<div style="font-weight:bold;color:#991b1b;text-decoration:line-through;font-size:14px;">❌ {sc["lesson_title"]}</div>'
+                        f'<div style="font-size:11px;">{sc["lesson_type"]} | {sc["gd"]}</div>'
+                        f'<div style="font-size:11px;color:#dc2626;">→ {mt}</div>'
                     )
                     bg, bl = "#fee2e2", "3px solid #dc2626"
                 else:
                     lec = sc["lesson_type"] == "Лекционные"
                     cell = (
-                        f'<div style="font-weight:bold;color:#1e40af;font-size:11px;">{sc["lesson_title"]}</div>'
-                        f'<div style="font-size:9px;color:#374151;">{sc["lesson_type"]}<br>{sc["gd"]}</div>'
+                        f'<div style="font-weight:bold;color:#1e40af;font-size:14px;">{sc["lesson_title"]}</div>'
+                        f'<div style="font-size:11px;color:#374151;">{sc["lesson_type"]}<br>{sc["gd"]}</div>'
                     )
                     bg, bl = ("#bfdbfe", "3px solid #3b82f6") if lec else ("#dbeafe", "3px solid #3b82f6")
 
@@ -197,9 +197,9 @@ def render():
                 sl_e = t2m(e)
                 if bk_s < sl_e and bk_e > sl_s:
                     cell += (
-                        f'<div style="font-size:10px;font-weight:bold;color:#92400e;margin-top:2px;">📌 {bkk["event_name"]}</div>'
-                        f'<div style="font-size:9px;">{bkk["organizer"]} | {bkk["attendees_count"]} чел.</div>'
-                        f'<div style="font-size:8px;color:#6b7280;">{bkk["st"]}–{bkk["et"]}</div>'
+                        f'<div style="font-size:12px;font-weight:bold;color:#92400e;margin-top:2px;">📌 {bkk["event_name"]}</div>'
+                        f'<div style="font-size:11px;">{bkk["organizer"]} | {bkk["attendees_count"]} чел.</div>'
+                        f'<div style="font-size:10px;color:#6b7280;">{bkk["st"]}–{bkk["et"]}</div>'
                     )
                     if "fee2e2" not in cell and "d1fae5" not in cell:
                         bg, bl = "#fef3c7", "3px solid #f59e0b"
