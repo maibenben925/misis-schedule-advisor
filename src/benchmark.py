@@ -591,7 +591,7 @@ def run_scenario_3() -> tuple[str, str, list[StrategyResult]]:
 
 def run_scenario_4() -> tuple[str, str, list[StrategyResult]]:
     title = "4. Крупный корпус, один день"
-    desc = "Перенос всех занятий из корпуса Л, Понедельник, upper"
+    desc = "Перенос всех занятий из корпуса Б, Понедельник, upper"
     lessons = _get_lessons_for_relocation("Б", "Понедельник", "upper")
     _print_scenario_header(title, desc, len(lessons))
     results = [strategy_random(lessons), strategy_greedy(lessons), strategy_hungarian(lessons)]
@@ -601,7 +601,7 @@ def run_scenario_4() -> tuple[str, str, list[StrategyResult]]:
 
 def run_scenario_5() -> tuple[str, str, list[StrategyResult]]:
     title = "5. Крупный корпус, один день, оба типа недель"
-    desc = "Перенос всех занятий из корпуса Л, Понедельник (upper + lower)"
+    desc = "Перенос всех занятий из корпуса Б, Понедельник (upper + lower)"
     lessons_u = _get_lessons_for_relocation("Б", "Понедельник", "upper")
     lessons_l = _get_lessons_for_relocation("Б", "Понедельник", "lower")
     lessons = lessons_u + lessons_l
@@ -613,7 +613,7 @@ def run_scenario_5() -> tuple[str, str, list[StrategyResult]]:
 
 def run_scenario_6() -> tuple[str, str, list[StrategyResult]]:
     title = "6. Крупный корпус, полная неделя"
-    desc = "Перенос всех занятий из корпуса Л, все дни недели, upper"
+    desc = "Перенос всех занятий из корпуса Б, все дни недели, upper"
     lessons = _get_lessons_for_relocation_building("Б", ["upper"])
     _print_scenario_header(title, desc, len(lessons))
     results = [strategy_random(lessons), strategy_greedy(lessons), strategy_hungarian(lessons)]
@@ -622,8 +622,8 @@ def run_scenario_6() -> tuple[str, str, list[StrategyResult]]:
 
 
 def run_scenario_7() -> tuple[str, str, list[StrategyResult]]:
-    title = "7. Закрытие корпуса Л на 2 недели"
-    desc = "Перенос ВСЕХ занятий из корпуса Л (upper + lower, все дни) -- эквивалент закрытия на 2 недели"
+    title = "7. Закрытие корпуса Б на 2 недели"
+    desc = "Перенос ВСЕХ занятий из корпуса Б (upper + lower, все дни) -- эквивалент закрытия на 2 недели"
     lessons = _get_lessons_for_relocation_building("Б", ["upper", "lower"])
     _print_scenario_header(title, desc, len(lessons))
     results = [strategy_random(lessons), strategy_greedy(lessons), strategy_hungarian(lessons)]
