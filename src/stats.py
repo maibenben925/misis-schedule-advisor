@@ -245,15 +245,6 @@ def fund_summary_with_transfers() -> dict:
         WHERE r.building NOT IN (?,?,?)
     """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
 
-    n_unique_lesson_slots = conn.execute("""
-        SELECT COUNT(*) as cnt FROM (
-            SELECT DISTINCT s.lesson_id, s.weekday, s.start, s.week_type
-            FROM schedule s
-            JOIN rooms r ON s.room_id = r.id
-            WHERE r.building NOT IN (?,?,?)
-        )
-    """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
-
     n_groups = conn.execute("""
         SELECT COUNT(DISTINCT s.group_id) as cnt FROM schedule s
         JOIN rooms r ON s.room_id = r.id
@@ -264,33 +255,33 @@ def fund_summary_with_transfers() -> dict:
         SELECT SUM(capacity) as cnt FROM rooms WHERE building NOT IN (?,?,?)
     """, EXCLUDED_BUILDINGS).fetchone()["cnt"]
 
+    avg_capacity = round(total_capacity / n_rooms) if n_rooms else 0
+
+    total_slots = n_rooms * 84
+
     total_bookings = conn.execute("SELECT COUNT(*) as cnt FROM event_bookings").fetchone()["cnt"]
     total_transfers = conn.execute("SELECT COUNT(*) as cnt FROM transfers").fetchone()["cnt"]
-    transfer_dates = conn.execute("SELECT COUNT(DISTINCT booking_date) as cnt FROM transfers").fetchone()["cnt"]
-    transfer_rooms = conn.execute("SELECT COUNT(DISTINCT new_room_id) as cnt FROM transfers").fetchone()["cnt"]
 
     try:
         total_cancellations = conn.execute("SELECT COUNT(*) as cnt FROM cancellations WHERE is_restored = 0").fetchone()["cnt"]
-        cancel_dates = conn.execute("SELECT COUNT(DISTINCT cancel_date) as cnt FROM cancellations WHERE is_restored = 0").fetchone()["cnt"]
     except sqlite3.OperationalError:
         total_cancellations = 0
-        cancel_dates = 0
 
     conn.close()
+
+    load_pct = round(n_lessons / total_slots * 100, 1) if total_slots else 0
 
     return {
         "rooms": n_rooms,
         "buildings": n_buildings,
-        "schedule_entries": n_lessons,
-        "unique_lesson_slots": n_unique_lesson_slots,
         "groups": n_groups,
-        "total_capacity": total_capacity or 0,
-        "bookings": total_bookings,
+        "avg_capacity": avg_capacity,
+        "total_slots": total_slots,
+        "occupied_slots": n_lessons,
+        "load_pct": load_pct,
         "transfers": total_transfers,
-        "transfer_dates": transfer_dates,
-        "transfer_rooms": transfer_rooms,
+        "bookings": total_bookings,
         "cancellations": total_cancellations,
-        "cancel_dates": cancel_dates,
     }
 
 

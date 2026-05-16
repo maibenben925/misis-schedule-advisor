@@ -1222,27 +1222,19 @@ elif page == "Статистика":
 
     # ── 1. Сводка по фонду ──
     st.subheader("Сводка по аудиторному фонду")
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Аудиторий", fs["rooms"])
     m2.metric("Корпусов", fs["buildings"])
-    m3.metric("Уникальных занятий", fs["unique_lesson_slots"])
-    m4.metric("Учебных групп", fs["groups"])
+    m3.metric("Учебных групп", fs["groups"])
+    m4.metric("Средняя вместимость", f'{fs["avg_capacity"]} мест')
+    m5.metric("Переносов", fs["transfers"])
 
-    m5, m6, m7, m8 = st.columns(4)
-    m5.metric("Записей в расписании", fs["schedule_entries"])
-    m6.metric("Общая вместимость", f'{fs["total_capacity"]} мест')
-    m7.metric("Бронирований", fs["bookings"])
-    m8.metric("Переносов", fs["transfers"])
-
-    if fs["transfers"] > 0:
-        m9, m10 = st.columns(2)
-        m9.metric("Дат с переносами", fs["transfer_dates"])
-        m10.metric("Аудиторий-получателей", fs["transfer_rooms"])
-
-    if fs["cancellations"] > 0:
-        m11, m12 = st.columns(2)
-        m11.metric("Отменённых занятий", fs["cancellations"])
-        m12.metric("Дат с отменами", fs["cancel_dates"])
+    m6, m7, m8, m9, m10 = st.columns(5)
+    m6.metric("Возможных слотов", fs["total_slots"])
+    m7.metric("Занято слотов", fs["occupied_slots"])
+    m8.metric("Загрузка фонда", f'{fs["load_pct"]}%')
+    m9.metric("Бронирований", fs["bookings"])
+    m10.metric("Отменённых занятий", fs["cancellations"])
 
     # ── 2. Загруженность аудиторий ──
     st.subheader("Наиболее и наименее загруженные аудитории")
