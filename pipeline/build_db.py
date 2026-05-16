@@ -313,6 +313,19 @@ def create_db(lessons: list[dict], db_path: Path) -> None:
         CREATE INDEX idx_cancellations_date ON cancellations(cancel_date);
         CREATE INDEX idx_cancellations_schedule ON cancellations(schedule_id);
         CREATE INDEX idx_cancellations_restored ON cancellations(is_restored);
+        CREATE TABLE incidents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            start_date TEXT NOT NULL,
+            end_date TEXT NOT NULL,
+            reason TEXT DEFAULT '',
+            created_at TEXT DEFAULT (datetime('now'))
+        );
+        CREATE TABLE incident_rooms (
+            incident_id INTEGER NOT NULL,
+            room_id INTEGER NOT NULL,
+            FOREIGN KEY (incident_id) REFERENCES incidents(id),
+            PRIMARY KEY (incident_id, room_id)
+        );
     """)
 
     groups = set()
@@ -468,7 +481,7 @@ def verify(db_path: Path) -> None:
     conn = sqlite3.connect(str(db_path))
     cur = conn.cursor()
 
-    tables = ["groups", "rooms", "lessons", "schedule", "transfers", "event_bookings"]
+    tables = ["groups", "rooms", "lessons", "schedule", "transfers", "event_bookings", "cancellations", "incidents", "incident_rooms"]
     print("\n=== Верификация ===")
     for t in tables:
         cnt = cur.execute(f"SELECT COUNT(*) FROM [{t}]").fetchone()[0]
