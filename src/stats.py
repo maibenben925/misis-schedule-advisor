@@ -13,6 +13,8 @@ DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 
 EXCLUDED_BUILDINGS = ("Онлайн", "Каф. ИЯКТ", "Спортивный комплекс Беляево")
 
+SLOTS_PER_ROOM = 84
+
 
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
@@ -51,7 +53,7 @@ def fund_summary_with_transfers() -> dict:
 
     avg_capacity = round(total_capacity / n_rooms) if n_rooms else 0
 
-    total_slots = n_rooms * 84
+    total_slots = n_rooms * SLOTS_PER_ROOM
 
     total_bookings = conn.execute("SELECT COUNT(*) as cnt FROM event_bookings").fetchone()["cnt"]
     total_transfers = conn.execute("SELECT COUNT(*) as cnt FROM transfers").fetchone()["cnt"]
@@ -85,7 +87,6 @@ def room_load_stats(n: int = 10) -> dict:
     Загрузка = занятые слоты / 84 возможных (6 дней × 7 пар × 2 недели).
     """
     conn = _connect()
-    SLOTS_PER_ROOM = 84
 
     rows = conn.execute("""
         SELECT r.id, r.name, r.building, r.capacity, r.has_computers,
