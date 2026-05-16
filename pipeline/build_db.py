@@ -376,10 +376,11 @@ def parse_room_name(name: str) -> tuple[str, int]:
     if len(parts) > 1:
         try:
             floor_str = parts[1].split("-")[0].split("_")[0]
-            for ch in floor_str:
-                if ch.isdigit():
-                    floor = int(ch)
-                    break
+            digits = "".join(ch for ch in floor_str if ch.isdigit())
+            if len(digits) > 2:
+                floor = int(digits[:-2])
+            elif digits:
+                floor = int(digits[0])
         except ValueError:
             floor = 0
     return building, floor
