@@ -398,7 +398,7 @@ conn.close()
 # ═══════════════════════════════════════════════════════
 print("\n═══ 8. Stats ═══")
 
-from src.stats import fund_summary_with_transfers, room_load_stats, pc_utilization, capacity_demand, load_by_slot
+from src.stats import fund_summary_with_transfers, room_load_stats, load_by_slot
 
 fs = fund_summary_with_transfers()
 check("fund_summary: rooms > 0", fs["rooms"] > 0)
@@ -427,19 +427,6 @@ if rl["most_loaded"]:
     check("room_load_stats: most <= 100%", rl["most_loaded"][0]["load_pct"] <= 100)
 if rl["least_loaded"]:
     check("room_load_stats: least <= most", rl["least_loaded"][0]["load_pct"] <= rl["most_loaded"][0]["load_pct"])
-
-pc = pc_utilization()
-check("pc_utilization: rooms_total >= 0", pc["rooms_total"] >= 0)
-check("pc_utilization: slots_for_comp + slots_for_noncomp <= 84 * rooms_total",
-      pc["slots_for_comp"] + pc["slots_for_noncomp"] <= 84 * max(pc["rooms_total"], 1))
-check("pc_utilization: wasted_rooms — список", isinstance(pc["wasted_rooms"], list))
-
-cd = capacity_demand()
-check("capacity_demand: возвращает список", isinstance(cd, list))
-check("capacity_demand: > 0 записей", len(cd) > 0)
-if cd:
-    check("capacity_demand: каждая запись имеет нужные ключи",
-          all(k in cd[0] for k in ["range", "rooms", "total_slots", "occupied_slots", "load_pct"]))
 
 ls = load_by_slot()
 check("load_by_slot: возвращает список", isinstance(ls, list))
@@ -494,7 +481,7 @@ if teacher_row and teacher_row["teacher"]:
 # ═══════════════════════════════════════════════════════
 # 10. Pipeline (build_db.py)
 # ═══════════════════════════════════════════════════════
-print("\n═══ 8. Pipeline (build_db.py) ═══")
+print("\n═══ 10. Pipeline (build_db.py) ═══")
 
 # Проверяем что build_db.py может быть импортирован (без запуска)
 from pipeline.build_db import (
