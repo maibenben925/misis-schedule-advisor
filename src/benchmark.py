@@ -122,16 +122,16 @@ def _get_lessons_for_relocation_building(building: str, week_types: list[str] | 
     return lessons
 
 
-def _build_super_units(slot_lessons: list[dict]) -> list[dict]:
+def _build_merged_units(slot_lessons: list[dict]) -> list[dict]:
     lesson_groups: dict[int, list[dict]] = {}
     for l in slot_lessons:
         lesson_groups.setdefault(l["lesson_id"], []).append(l)
 
-    super_units = []
+    merged_units = []
     for lid, group_lessons in lesson_groups.items():
         if len(group_lessons) == 1:
             gl = group_lessons[0]
-            super_units.append({
+            merged_units.append({
                 "schedule_ids": [gl["schedule_id"]],
                 "students_count": gl["students_count"],
                 "needs_projector": gl["needs_projector"],
@@ -144,7 +144,7 @@ def _build_super_units(slot_lessons: list[dict]) -> list[dict]:
             total_students = sum(l["students_count"] for l in group_lessons)
             needs_proj = any(l["needs_projector"] for l in group_lessons)
             needs_comp = any(l["needs_computers"] for l in group_lessons)
-            super_units.append({
+            merged_units.append({
                 "schedule_ids": [l["schedule_id"] for l in group_lessons],
                 "students_count": total_students,
                 "needs_projector": needs_proj,
@@ -153,7 +153,7 @@ def _build_super_units(slot_lessons: list[dict]) -> list[dict]:
                 "room_floor": group_lessons[0]["room_floor"],
                 "room_id": group_lessons[0]["room_id"],
             })
-    return super_units
+    return merged_units
 
 
 def _build_cost_matrix(units: list[dict], rooms: list) -> np.ndarray:
@@ -240,17 +240,17 @@ def strategy_random(lessons: list[dict], seed: int = 42) -> StrategyResult:
 
     for slot_key, slot_lessons in time_slots.items():
         weekday, start, end, week_type = slot_key
-        super_units = _build_super_units(slot_lessons)
-        excluded_ids = set(u["room_id"] for u in super_units)
+        merged_units = _build_merged_units(slot_lessons)
+        excluded_ids = set(u["room_id"] for u in merged_units)
         free = _get_free_rooms_for_slot(weekday, start, end, week_type, excluded_ids)
 
         if not free:
-            for u in super_units:
+            for u in merged_units:
                 n_unassigned += len(u["schedule_ids"])
             continue
 
         used_room_ids: set[int] = set()
-        for unit in super_units:
+        for unit in merged_units:
             all_penalties_for_unit = [_penalty_for_unit(unit, r) for r in free]
 
             feasible = [r for r in free
@@ -305,17 +305,17 @@ def strategy_greedy(lessons: list[dict]) -> StrategyResult:
 
     for slot_key, slot_lessons in time_slots.items():
         weekday, start, end, week_type = slot_key
-        super_units = _build_super_units(slot_lessons)
-        excluded_ids = set(u["room_id"] for u in super_units)
+        merged_units = _build_merged_units(slot_lessons)
+        excluded_ids = set(u["room_id"] for u in merged_units)
         free = _get_free_rooms_for_slot(weekday, start, end, week_type, excluded_ids)
 
         if not free:
-            for u in super_units:
+            for u in merged_units:
                 n_unassigned += len(u["schedule_ids"])
             continue
 
         used_room_ids: set[int] = set()
-        for unit in super_units:
+        for unit in merged_units:
             all_penalties_for_unit = [_penalty_for_unit(unit, r) for r in free]
 
             feasible = [(r, _penalty_for_unit(unit, r)) for r in free
@@ -370,19 +370,19 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
 
     for slot_key, slot_lessons in time_slots.items():
         weekday, start, end, week_type = slot_key
-        super_units = _build_super_units(slot_lessons)
-        excluded_ids = set(u["room_id"] for u in super_units)
+        merged_units = _build_merged_units(slot_lessons)
+        excluded_ids = set(u["room_id"] for u in merged_units)
         free = _get_free_rooms_for_slot(weekday, start, end, week_type, excluded_ids)
 
-        n = len(super_units)
+        n = len(merged_units)
         m = len(free)
 
         if m == 0:
-            for u in super_units:
+            for u in merged_units:
                 n_unassigned += len(u["schedule_ids"])
             continue
 
-        cost = _build_cost_matrix(super_units, free)
+        cost = _build_cost_matrix(merged_units, free)
         row_indices, col_indices = linear_sum_assignment(cost)
 
         assigned_unit_indices: set[int] = set()
@@ -392,7 +392,7 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
                 continue
             assigned_unit_indices.add(r_idx)
 
-            unit = super_units[r_idx]
+            unit = merged_units[r_idx]
             room = free[c_idx]
             all_penalties.append(p)
             n_assigned += len(unit["schedule_ids"])
@@ -407,7 +407,7 @@ def strategy_hungarian(lessons: list[dict]) -> StrategyResult:
                 match_pct = 100.0
             all_match_pcts.append(match_pct)
 
-        for i, u in enumerate(super_units):
+        for i, u in enumerate(merged_units):
             if i not in assigned_unit_indices:
                 n_unassigned += len(u["schedule_ids"])
 

@@ -63,17 +63,17 @@ def _get_unassign_reason(unit: dict, free_rooms: list) -> str:
     return f"Подходят: {names}{suffix} — заняты другими занятиями в этом слоте"
 
 
-def _build_super_cost_matrix(
-    super_units: list[dict],
+def _build_merged_cost_matrix(
+    merged_units: list[dict],
     free_rooms: list,
 ) -> np.ndarray:
-    """Матрица стоимостей для 'супер-уроков' (лекций с суммарными студентами)."""
-    n = len(super_units)
+    """Матрица стоимостей для объединённых занятий (лекций с суммарными студентами)."""
+    n = len(merged_units)
     m = len(free_rooms)
 
     cost = np.full((n, m), BIG_COST, dtype=np.float64)
 
-    for i, unit in enumerate(super_units):
+    for i, unit in enumerate(merged_units):
         for j, room in enumerate(free_rooms):
             # Hard constraints: суммарная вместимость
             if room["capacity"] < unit["students_count"]:
@@ -99,14 +99,14 @@ def _build_super_cost_matrix(
     return cost
 
 
-def _build_super_scored_rooms(
+def _build_merged_scored_rooms(
     cost_matrix: np.ndarray,
     row_indices: list[int],
     col_indices: list[int],
     free_rooms: list,
-    super_units: list[dict],
+    merged_units: list[dict],
 ) -> dict[int, ScoredRoom]:
-    """ScoredRoom для супер-уроков: одна аудитория → все schedule_ids лекции."""
+    """ScoredRoom для объединённых занятий: одна аудитория → все schedule_ids лекции."""
     assignments = {}
 
     for row_idx, col_idx in zip(row_indices, col_indices):
@@ -116,7 +116,7 @@ def _build_super_scored_rooms(
         if penalty >= BIG_COST:
             continue
 
-        unit = super_units[row_idx]
+        unit = merged_units[row_idx]
         room = free_rooms[col_idx]
 
         # Match %: относительный — 100% = лучший вариант, 0% = худший
@@ -143,7 +143,7 @@ def _build_super_scored_rooms(
             match_percent=match_pct,
         )
 
-        # Назначаем ОДНУ аудиторию всем schedule_ids этого супер-урока
+        # Назначаем ОДНУ аудиторию всем schedule_ids этого объединённого занятия
         for sid in unit["schedule_ids"]:
             assignments[sid] = scored
 
@@ -215,12 +215,12 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
             lid = l["lesson_id"]
             lesson_groups.setdefault(lid, []).append(l)
 
-        # Создаём "супер-уроки": для лекций суммируем студентов
-        super_units: list[dict] = []
+        # Создаём объединённые занятия: для лекций суммируем студентов
+        merged_units: list[dict] = []
         for lid, group_lessons in lesson_groups.items():
             if len(group_lessons) == 1:
                 # Обычное занятие — одна группа
-                super_units.append({
+                merged_units.append({
                     "schedule_ids": [group_lessons[0]["schedule_id"]],
                     "students_count": group_lessons[0]["students_count"],
                     "needs_projector": group_lessons[0]["needs_projector"],
@@ -238,7 +238,7 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
                 # Объединяем требования (проектор нужен, если хотя бы одной группе)
                 needs_proj = any(l["needs_projector"] for l in group_lessons)
                 needs_comp = any(l["needs_computers"] for l in group_lessons)
-                super_units.append({
+                merged_units.append({
                     "schedule_ids": [l["schedule_id"] for l in group_lessons],
                     "students_count": total_students,
                     "needs_projector": needs_proj,
@@ -251,7 +251,7 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
                     "group_name": ", ".join(l["group_name"] for l in group_lessons),
                 })
 
-        excluded_ids = [u["room_id"] for u in super_units] + list(_closed)
+        excluded_ids = [u["room_id"] for u in merged_units] + list(_closed)
         excluded_set = set(excluded_ids)
 
         free_rooms = get_free_rooms(
@@ -259,12 +259,12 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
         )
         free_rooms = [r for r in free_rooms if r["id"] not in excluded_set]
 
-        n = len(super_units)
+        n = len(merged_units)
         m = len(free_rooms)
 
         if m == 0:
             reason = "Нет свободных аудиторий в слоте"
-            for u in super_units:
+            for u in merged_units:
                 for sid in u["schedule_ids"]:
                     all_unassigned.append(sid)
                     all_unassigned_reasons[sid] = reason
@@ -284,18 +284,18 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
                 })
             continue
 
-        # Матрица стоимостей для супер-уроков
-        cost_matrix = _build_super_cost_matrix(
-            super_units, free_rooms
+        # Матрица стоимостей для объединённых занятий
+        cost_matrix = _build_merged_cost_matrix(
+            merged_units, free_rooms
         )
 
         # Венгерский алгоритм
         row_indices, col_indices = linear_sum_assignment(cost_matrix)
 
         # Назначения для этого слота
-        slot_assignments = _build_super_scored_rooms(
+        slot_assignments = _build_merged_scored_rooms(
             cost_matrix, list(row_indices), list(col_indices),
-            free_rooms, super_units,
+            free_rooms, merged_units,
         )
 
         all_assignments.update(slot_assignments)
@@ -305,7 +305,7 @@ def mass_reallocate(schedule_ids: list[int], excluded_room_ids: list[int] | None
         for r_idx, c_idx in zip(row_indices, col_indices):
             if cost_matrix[r_idx, c_idx] < BIG_COST:
                 assigned_unit_indices.add(r_idx)
-        for i, u in enumerate(super_units):
+        for i, u in enumerate(merged_units):
             if i not in assigned_unit_indices:
                 reason = _get_unassign_reason(u, free_rooms)
                 for sid in u["schedule_ids"]:

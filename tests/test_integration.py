@@ -296,7 +296,7 @@ check(f"Корпус Л: назначено {len(result_L.assignments)}/{len(sid
 if result_L.unassigned:
     print(f"    ⚠ Unassigned: {len(result_L.unassigned)}")
 
-# Тест 3: супер-уроки (лекции с несколькими группами)
+# Тест 3: объединённые занятия (лекции с несколькими группами)
 c.execute("""
     SELECT s.id FROM schedule s JOIN lessons l ON s.lesson_id = l.id
     WHERE l.lesson_type = 'Лекционные' AND s.weekday = 'Вторник' AND s.week_type = 'upper'
@@ -312,7 +312,7 @@ for sid in result_lec.assignments:
     lesson_rooms.setdefault(lid, set()).add(result_lec.assignments[sid].room_id)
 
 all_consistent = all(len(rooms) == 1 for rooms in lesson_rooms.values())
-check("Супер-уроки: все группы одной лекции → одна аудитория", all_consistent,
+check("Объединённые занятия: все группы одной лекции → одна аудитория", all_consistent,
       f"несовпадений: {sum(1 for rooms in lesson_rooms.values() if len(rooms) > 1)}")
 
 conn.close()
